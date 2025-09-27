@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#006fee;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#4285f4;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="80" fill="url(#grad)"/>
+  <g fill="white">
+    <!-- 救災圖標 -->
+    <circle cx="256" cy="180" r="40" opacity="0.9"/>
+    <rect x="220" y="220" width="72" height="120" rx="12" opacity="0.9"/>
+    <rect x="180" y="260" width="40" height="12" rx="6"/>
+    <rect x="292" y="260" width="40" height="12" rx="6"/>
+    <rect x="200" y="350" width="20" height="40" rx="10"/>
+    <rect x="292" y="350" width="20" height="40" rx="10"/>
+
+    <!-- 十字符號 -->
+    <rect x="390" y="120" width="8" height="40" rx="4"/>
+    <rect x="374" y="132" width="40" height="8" rx="4"/>
+
+    <!-- 愛心符號 -->
+    <path d="M150 140 C130 120, 90 120, 90 160 C90 200, 150 240, 150 240 C150 240, 210 200, 210 160 C210 120, 170 120, 150 140 Z" opacity="0.8"/>
+  </g>
+  <text x="256" y="450" font-family="Arial, sans-serif" font-size="36" font-weight="bold" fill="white" text-anchor="middle">慈濟救災</text>
+</svg>

@@ -1,0 +1,17 @@
+{
+  "dependencies": {
+    "@heroui/autocomplete": "^2.3.28",
+    "@heroui/checkbox": "^2.3.26",
+    "@heroui/modal": "^2.2.23",
+    "@heroui/progress": "^2.2.21",
+    "@heroui/react": "^2.8.4",
+    "@heroui/select": "^2.4.27",
+    "@mui/icons-material": "^7.3.2",
+    "@mui/material": "^7.3.2",
+    "@supabase/supabase-js": "^2.58.0",
+    "@tailwindcss/typography": "^0.5.19",
+    "i18next": "^25.5.2",
+    "react-i18next": "^16.0.0",
+    "react-markdown": "^10.1.0"
+  }
+}
