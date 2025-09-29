@@ -101,6 +101,7 @@ export default function BankSelector({
       selectedKey={selectedBankCode ? `${selectedBankCode}-${bankCodes.find(b => b.code === selectedBankCode)?.name}` : null}
       items={filteredBanks}
       allowsCustomValue={false}
+      aria-label={label || "選擇銀行"}
       listboxProps={{
         emptyContent: "找不到符合的銀行"
       }}
