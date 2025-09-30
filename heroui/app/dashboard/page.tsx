@@ -282,7 +282,8 @@ export default function DashboardPage() {
             </ModalHeader>
             <ModalBody className="space-y-4">
               <Select
-                label={t('dashboard.fileFormat')}
+                label={t('dashboard.fileFormat') || '檔案格式'}
+                aria-label="檔案格式選擇"
                 selectedKeys={[downloadFormat]}
                 onSelectionChange={(keys) => setDownloadFormat(Array.from(keys)[0] as string)}
               >
