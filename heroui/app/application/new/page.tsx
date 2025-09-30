@@ -136,10 +136,14 @@ export default function NewApplicationPage() {
     }
   }
 
-  // 上傳檔案到 Storage
-  const uploadFileToStorage = async (file: File, folder: string, uuid: string) => {
+  // 上傳檔案到 Storage（使用新的命名規則：身份證ID_UUID7_[證件類別]）
+  const uploadFileToStorage = async (file: File, folder: string, idNumber: string, docType: string) => {
+    // 動態匯入 uuid
+    const { v7: uuidv7 } = await import('uuid')
+
     const fileExt = file.type === 'image/png' ? 'png' : 'jpg'
-    const fileName = `${folder}/${uuid}.${fileExt}`
+    const uniqueId = uuidv7()
+    const fileName = `${folder}/${idNumber}_${uniqueId}_${docType}.${fileExt}`
 
     const { data, error } = await supabase.storage
       .from('media')
@@ -174,7 +178,10 @@ export default function NewApplicationPage() {
           phone_number: formData.phone_number,
           address: formData.address,
           bank_code: formData.bank_code,
-          bank_account: formData.bank_account
+          bank_name: formData.bank_name || null,
+          bank_branch: formData.bank_branch || null,
+          bank_account: formData.bank_account,
+          account_name: formData.account_name || null
         }])
         .select()
         .single()
@@ -184,32 +191,29 @@ export default function NewApplicationPage() {
       const newApplicationId = applicationData.id
       setApplicationId(newApplicationId)
 
-      // 3. 上傳所有檔案
-      const uploads: Promise<string>[] = []
+      // 3. 上傳所有檔案（使用新的命名規則：身份證ID_UUID7_[證件類別]）
       const updateData: any = {}
+      const idNumber = formData.id_number
 
       if (fileData.frontIdPhoto) {
-        uploads.push(uploadFileToStorage(fileData.frontIdPhoto, 'front_id', newApplicationId))
-        updateData.front_id_photo = `front_id/${newApplicationId}.jpg`
+        const path = await uploadFileToStorage(fileData.frontIdPhoto, 'front_id', idNumber, 'front')
+        updateData.front_id_photo = path
       }
 
       if (fileData.backIdPhoto) {
-        uploads.push(uploadFileToStorage(fileData.backIdPhoto, 'back_id', newApplicationId))
-        updateData.back_id_photo = `back_id/${newApplicationId}.jpg`
+        const path = await uploadFileToStorage(fileData.backIdPhoto, 'back_id', idNumber, 'back')
+        updateData.back_id_photo = path
       }
 
       if (fileData.bankPhoto) {
-        uploads.push(uploadFileToStorage(fileData.bankPhoto, 'bank_account', newApplicationId))
-        updateData.bank_photo = `bank_account/${newApplicationId}.jpg`
+        const path = await uploadFileToStorage(fileData.bankPhoto, 'bank_account', idNumber, 'bank')
+        updateData.bank_photo = path
       }
 
       // 簽名已移除，不再上傳簽名檔案
 
-      // 4. 執行所有檔案上傳
-      if (uploads.length > 0) {
-        await Promise.all(uploads)
-
-        // 5. 更新資料庫記錄
+      // 4. 更新資料庫記錄（如果有檔案上傳）
+      if (Object.keys(updateData).length > 0) {
         const { error: updateError } = await supabase
           .from('disaster_applications')
           .update(updateData)

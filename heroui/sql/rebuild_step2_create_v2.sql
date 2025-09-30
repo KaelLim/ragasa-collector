@@ -1,8 +1,6 @@
--- ========================================
--- 慈濟救災系統 - 簡化版生產環境設定
--- ========================================
+-- 步驟 2: 創建表和函數（修正版）
 
--- 1. 創建 bank_codes 表
+-- 創建 bank_codes 表
 CREATE TABLE public.bank_codes (
   id SERIAL PRIMARY KEY,
   code VARCHAR(3) NOT NULL,
@@ -11,10 +9,9 @@ CREATE TABLE public.bank_codes (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 創建複合唯一索引
 CREATE UNIQUE INDEX idx_bank_codes_code_name_unique ON bank_codes(code, name);
 
--- 2. 創建 validate_bank_code 函數
+-- 創建 validate_bank_code 函數
 CREATE OR REPLACE FUNCTION validate_bank_code(code_value VARCHAR)
 RETURNS BOOLEAN AS $$
 BEGIN
@@ -25,7 +22,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
--- 3. 創建 disaster_applications 表
+-- 創建 disaster_applications 表（包含新欄位，無 signature）
 CREATE TABLE public.disaster_applications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL,
@@ -43,27 +40,23 @@ CREATE TABLE public.disaster_applications (
   bank_photo VARCHAR(255),
   status VARCHAR(20) DEFAULT 'submitted',
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+  -- 直接在 CREATE TABLE 時加入約束
+  CONSTRAINT check_status CHECK (status IN ('submitted', 'reviewed', 'approved', 'rejected')),
+  CONSTRAINT check_id_number_format CHECK (LENGTH(id_number) = 10 AND id_number ~ '^[A-Z][0-9]{9}$'),
+  CONSTRAINT check_phone_number_format CHECK (phone_number ~ '^[0-9#\-\+\(\)\s]+$')
 );
 
--- 4. 添加約束（分別執行）
-ALTER TABLE disaster_applications ADD CONSTRAINT check_status
-CHECK (status IN ('submitted', 'reviewed', 'approved', 'rejected'));
-
-ALTER TABLE disaster_applications ADD CONSTRAINT check_id_number_format
-CHECK (LENGTH(id_number) = 10 AND id_number ~ '^[A-Z][0-9]{9}$');
-
-ALTER TABLE disaster_applications ADD CONSTRAINT check_phone_number_format
-CHECK (phone_number ~ '^[0-9#\-\+\(\)\s]+$');
-
--- 5. 創建索引
+-- 創建索引
 CREATE INDEX idx_disaster_applications_user_id ON disaster_applications(user_id);
 CREATE INDEX idx_disaster_applications_status ON disaster_applications(status);
 CREATE INDEX idx_disaster_applications_created_at ON disaster_applications(created_at);
 CREATE INDEX idx_disaster_applications_id_number ON disaster_applications(id_number);
 CREATE INDEX idx_disaster_applications_bank_code ON disaster_applications(bank_code);
+CREATE INDEX idx_disaster_applications_bank_name ON disaster_applications(bank_name);
 
--- 6. 創建更新時間函數和觸發器
+-- 創建更新時間函數
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -72,11 +65,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- 創建觸發器
 CREATE TRIGGER update_disaster_applications_updated_at
     BEFORE UPDATE ON disaster_applications
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
-
--- 7. 啟用 RLS
-ALTER TABLE bank_codes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE disaster_applications ENABLE ROW LEVEL SECURITY;

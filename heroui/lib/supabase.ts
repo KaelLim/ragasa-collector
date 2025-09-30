@@ -29,11 +29,13 @@ export interface DisasterApplication {
   phone_number: string
   address: string
   bank_code: string
+  bank_name?: string
+  bank_branch?: string
   bank_account: string
+  account_name?: string
   front_id_photo?: string
   back_id_photo?: string
   bank_photo?: string
-  signature?: string
   status: 'submitted' | 'reviewed' | 'approved' | 'rejected'
   created_at: string
   updated_at: string
