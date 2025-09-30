@@ -136,14 +136,14 @@ export default function NewApplicationPage() {
     }
   }
 
-  // 上傳檔案到 Storage（使用新的命名規則：身份證ID_UUID7_[證件類別]）
-  const uploadFileToStorage = async (file: File, folder: string, idNumber: string, docType: string) => {
+  // 上傳檔案到 Storage（使用 UUID v7 作為唯一檔名，保護隱私）
+  const uploadFileToStorage = async (file: File, folder: string, docType: string) => {
     // 動態匯入 uuid
     const { v7: uuidv7 } = await import('uuid')
 
     const fileExt = file.type === 'image/png' ? 'png' : 'jpg'
     const uniqueId = uuidv7()
-    const fileName = `${folder}/${idNumber}_${uniqueId}_${docType}.${fileExt}`
+    const fileName = `${folder}/${uniqueId}_${docType}.${fileExt}`
 
     const { data, error } = await supabase.storage
       .from('media')
@@ -191,22 +191,21 @@ export default function NewApplicationPage() {
       const newApplicationId = applicationData.id
       setApplicationId(newApplicationId)
 
-      // 3. 上傳所有檔案（使用新的命名規則：身份證ID_UUID7_[證件類別]）
+      // 3. 上傳所有檔案（使用 UUID v7 唯一檔名，保護個資隱私）
       const updateData: any = {}
-      const idNumber = formData.id_number
 
       if (fileData.frontIdPhoto) {
-        const path = await uploadFileToStorage(fileData.frontIdPhoto, 'front_id', idNumber, 'front')
+        const path = await uploadFileToStorage(fileData.frontIdPhoto, 'front_id', 'front')
         updateData.front_id_photo = path
       }
 
       if (fileData.backIdPhoto) {
-        const path = await uploadFileToStorage(fileData.backIdPhoto, 'back_id', idNumber, 'back')
+        const path = await uploadFileToStorage(fileData.backIdPhoto, 'back_id', 'back')
         updateData.back_id_photo = path
       }
 
       if (fileData.bankPhoto) {
-        const path = await uploadFileToStorage(fileData.bankPhoto, 'bank_account', idNumber, 'bank')
+        const path = await uploadFileToStorage(fileData.bankPhoto, 'bank_account', 'bank')
         updateData.bank_photo = path
       }
 
