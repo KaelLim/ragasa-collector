@@ -38,3 +38,20 @@ pnpm-lock.yaml
 yarn.lock
 package-lock.json
 bun.lockb
+# Environment files with API keys
+.env.ocr
+.env.local
+.env.*.local
+
+# Backup files
+*.backup
+backups/
+
+# Test scripts
+test-*.js
+scripts/test-*.js
+
+# Documentation drafts
+*_SUMMARY.md
+*_MIGRATION.md
+EXECUTE_*.md

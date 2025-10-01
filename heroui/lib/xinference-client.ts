@@ -276,9 +276,17 @@ class XinferenceOCRClient {
    */
   async checkServiceStatus(): Promise<boolean> {
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      }
+
+      if (process.env.XINFERENCE_API_KEY) {
+        headers['Authorization'] = `Bearer ${process.env.XINFERENCE_API_KEY}`
+      }
+
       const response = await fetch(`${this.apiUrl}/models`, {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
+        headers
       })
 
       if (!response.ok) {
