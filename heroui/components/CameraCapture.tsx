@@ -32,6 +32,7 @@ export default function CameraCapture({
   const [exifInfo, setExifInfo] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const startCamera = useCallback(async () => {
@@ -156,7 +157,27 @@ export default function CameraCapture({
     setIsEditorOpen(false)
     setTempFile(null)
     setTempImageUrl(null)
+    // 清空 file input，以便下次可以選擇同樣的檔案
+    if (cameraInputRef.current) {
+      cameraInputRef.current.value = ''
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
     // EXIF 資訊會保留，因為已經處理過方向校正
+  }
+
+  const handleEditorClose = () => {
+    setIsEditorOpen(false)
+    setTempFile(null)
+    setTempImageUrl(null)
+    // 清空 file input，以便下次可以選擇檔案
+    if (cameraInputRef.current) {
+      cameraInputRef.current.value = ''
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
   }
 
   const triggerFileUpload = () => {
@@ -198,32 +219,58 @@ export default function CameraCapture({
           </CardBody>
         </Card>
       ) : (
-        <div className="flex gap-2 w-full">
+        <div className="grid grid-cols-2 gap-2 w-full">
           <Button
             color="primary"
-            variant="bordered"
-            onClick={handleOpenCamera}
-            className="flex-1 aspect-video flex flex-col gap-2 h-auto min-h-[120px]"
+            size="lg"
+            onClick={() => cameraInputRef.current?.click()}
+            className="h-14"
+            startContent={
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 15.5c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm0-5c1.103 0 2 .897 2 2s-.897 2-2 2-2-.897-2-2 .897-2 2-2z"/>
+                <path d="M20 4h-3.17l-1.24-1.35c-.37-.41-.91-.65-1.47-.65H9.88c-.56 0-1.1.24-1.47.65L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h4.05l1.83-2h4.24l1.83 2H20v12z"/>
+              </svg>
+            }
           >
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 15.5c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm0-5c1.103 0 2 .897 2 2s-.897 2-2 2-2-.897-2-2 .897-2 2-2z"/>
-              <path d="M20 4h-3.17l-1.24-1.35c-.37-.41-.91-.65-1.47-.65H9.88c-.56 0-1.1.24-1.47.65L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h4.05l1.83-2h4.24l1.83 2H20v12z"/>
-            </svg>
-            {i18n.language === 'zh-TW' ? '拍照' : 'Camera'}
+            <span className="text-sm md:text-base">{i18n.language === 'zh-TW' ? '拍照' : 'Camera'}</span>
           </Button>
           <Button
             color="primary"
             variant="bordered"
-            onClick={triggerFileUpload}
-            className="flex-1 aspect-video flex flex-col gap-2 h-auto min-h-[120px]"
+            size="lg"
+            onClick={() => fileInputRef.current?.click()}
+            className="h-14"
+            startContent={
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+              </svg>
+            }
           >
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
-            </svg>
-            {i18n.language === 'zh-TW' ? '上傳圖片' : 'Upload'}
+            <span className="text-sm md:text-base">{i18n.language === 'zh-TW' ? '上傳' : 'Upload'}</span>
           </Button>
         </div>
       )}
+
+      {/* Hidden file input for camera */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleFileSelect}
+        className="hidden"
+        aria-label="Take photo"
+      />
+
+      {/* Hidden file input for gallery */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileSelect}
+        className="hidden"
+        aria-label="Upload image file"
+      />
 
       <Modal
         isOpen={isOpen}
@@ -238,13 +285,13 @@ export default function CameraCapture({
           <ModalHeader className="text-white">
             {label}
           </ModalHeader>
-          <ModalBody className="flex items-center justify-center">
-            <div className="relative w-full max-w-lg">
+          <ModalBody className="flex items-center justify-center p-0">
+            <div className="relative w-full h-full flex items-center justify-center">
               <video
                 ref={videoRef}
                 autoPlay
                 playsInline
-                className="w-full h-auto rounded-lg"
+                className="w-full h-full object-contain"
               />
               <canvas
                 ref={canvasRef}
@@ -267,20 +314,10 @@ export default function CameraCapture({
         </ModalContent>
       </Modal>
 
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handleFileSelect}
-        className="hidden"
-        aria-label="Upload image file"
-      />
-
       {/* 圖片編輯器 */}
       <ImageEditor
         isOpen={isEditorOpen}
-        onClose={() => setIsEditorOpen(false)}
+        onClose={handleEditorClose}
         imageFile={tempFile}
         imageUrl={tempImageUrl}
         onSave={handleImageSave}

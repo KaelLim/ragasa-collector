@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { use, useState, useEffect } from 'react'
 import { Card, CardBody, CardHeader } from '@heroui/card'
 import { Button } from '@heroui/button'
 import { Progress } from '@heroui/progress'
@@ -16,7 +16,9 @@ import MobileMenu from '@/components/MobileMenu'
 import CameraCapture from '@/components/CameraCapture'
 import SignatureCanvas from '@/components/SignatureCanvas'
 import BankSelector from '@/components/BankSelector'
+import BranchSelector from '@/components/BranchSelector'
 import { supabase, type BankCode } from '@/lib/supabase'
+import { ocrClient } from '@/lib/ocr-client'
 import { useCountdown } from '@/hooks/useCountdown'
 
 type FormStep = 'consent-form' | 'application-form' | 'document-upload' | 'completed'
@@ -27,8 +29,11 @@ const steps = [
   { key: 'document-upload', title: '其他文件上傳', titleEn: 'Additional Documents Upload' },
 ]
 
-export default function NewApplicationPage() {
+export default function NewApplicationPage({ params }: { params: Promise<{ village: string }> }) {
   const { t, i18n } = useTranslation()
+  const router = useRouter()
+  const { village: rawVillage } = use(params)
+  const village = decodeURIComponent(rawVillage) // 解碼中文村名
   const [currentStep, setCurrentStep] = useState<FormStep>('consent-form')
   const [isAgreed, setIsAgreed] = useState(false)
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
@@ -43,10 +48,15 @@ export default function NewApplicationPage() {
     address: '',
     bank_code: '',
     bank_name: '',
+    branch_code: '',
     bank_branch: '',
     bank_account: '',
     account_name: '',
-    contactOption: '' as '' | 'provide' | 'skip'
+    contactOption: '' as '' | 'provide' | 'skip',
+    signature: '' as string,
+    front_id_photo: '' as string,
+    back_id_photo: '' as string,
+    bank_photo: '' as string
   })
 
   // 數字鍵盤狀態
@@ -58,7 +68,7 @@ export default function NewApplicationPage() {
     frontIdPhoto: null as File | null,
     backIdPhoto: null as File | null,
     bankPhoto: null as File | null,
-    // signature: null as File | null - 簽名已移除
+    signature: null as File | null
   })
 
   // 銀行代碼資料
@@ -80,8 +90,6 @@ export default function NewApplicationPage() {
     file: File | null
     preview: string | null
   }>>([])
-
-  const router = useRouter()
 
   // 倒數計時器 Hook - 必須在頂層調用，不能在條件內
   const { timeLeft, isComplete, percentage } = useCountdown(5, {
@@ -105,11 +113,14 @@ export default function NewApplicationPage() {
       const { data, error } = await supabase
         .from('bank_codes')
         .select('*')
-        .order('type', { ascending: true })
+        .order('code', { ascending: true })
         .order('name', { ascending: true })
 
       if (data) {
         setBankCodes(data)
+        console.log('載入銀行代碼:', data.length, '筆')
+      } else if (error) {
+        console.error('載入銀行代碼失敗:', error)
       }
     }
 
@@ -136,6 +147,28 @@ export default function NewApplicationPage() {
     }
   }
 
+  // 根據身分證字號自動判斷性別
+  const getGender = (idNumber: string): string => {
+    if (idNumber.length < 2) return ''
+    const firstDigit = parseInt(idNumber[1]) // 身分證第二個字元（第一個數字）
+    if (isNaN(firstDigit)) return ''
+    // 1,8 = 男性；2,9 = 女性
+    return (firstDigit === 1 || firstDigit === 8) ? '男' :
+           (firstDigit === 2 || firstDigit === 9) ? '女' : ''
+  }
+
+  // 中文類型轉英文（用於檔案命名）
+  const getEnglishDocType = (docType: string): string => {
+    const typeMap: Record<string, string> = {
+      '租賃契約': 'lease',
+      '戶籍謄本': 'household',
+      '房屋所有權狀': 'property',
+      '其他': 'other'
+    }
+    // 如果在 typeMap 中找到，使用對應的英文；否則統一使用 'other'
+    return typeMap[docType] || 'other'
+  }
+
   // 上傳檔案到 Storage（使用 UUID v7 作為唯一檔名，保護隱私）
   const uploadFileToStorage = async (file: File, folder: string, docType: string) => {
     // 動態匯入 uuid
@@ -143,7 +176,9 @@ export default function NewApplicationPage() {
 
     const fileExt = file.type === 'image/png' ? 'png' : 'jpg'
     const uniqueId = uuidv7()
-    const fileName = `${folder}/${uniqueId}_${docType}.${fileExt}`
+    // 將中文類型轉為英文以避免檔名問題
+    const englishType = getEnglishDocType(docType)
+    const fileName = `${folder}/${uniqueId}_${englishType}.${fileExt}`
 
     const { data, error } = await supabase.storage
       .from('media')
@@ -168,57 +203,109 @@ export default function NewApplicationPage() {
         throw new Error('用戶未登入')
       }
 
-      // 2. 插入基本資料到資料庫
-      const { data: applicationData, error: insertError } = await supabase
-        .from('disaster_applications')
+      // 2. 準備申請資料（JSONB 格式）
+      const applicationData = {
+        user_id: user.id,
+        victim_name: formData.victim_name,
+        id_number: formData.id_number,
+        phone_number: formData.phone_number.trim() || null,
+        address: formData.address
+      }
+
+      // 插入到 village_applications 表
+      const { data: insertedData, error: insertError } = await supabase
+        .from('village_applications')
         .insert([{
-          user_id: user.id,
-          victim_name: formData.victim_name,
-          id_number: formData.id_number,
-          phone_number: formData.phone_number,
-          address: formData.address,
-          bank_code: formData.bank_code,
-          bank_name: formData.bank_name || null,
-          bank_branch: formData.bank_branch || null,
-          bank_account: formData.bank_account,
-          account_name: formData.account_name || null
+          village: village,
+          data: applicationData
         }])
         .select()
         .single()
 
       if (insertError) throw insertError
 
-      const newApplicationId = applicationData.id
+      const newApplicationId = insertedData.uuid
       setApplicationId(newApplicationId)
 
-      // 3. 上傳所有檔案（使用 UUID v7 唯一檔名，保護個資隱私）
-      const updateData: any = {}
+      // 3. 上傳所有檔案並準備 documents JSONB
+      const documentsData: any = {}
 
       if (fileData.frontIdPhoto) {
         const path = await uploadFileToStorage(fileData.frontIdPhoto, 'front_id', 'front')
-        updateData.front_id_photo = path
+        documentsData.front_id_photo = path
       }
 
       if (fileData.backIdPhoto) {
         const path = await uploadFileToStorage(fileData.backIdPhoto, 'back_id', 'back')
-        updateData.back_id_photo = path
+        documentsData.back_id_photo = path
       }
 
-      if (fileData.bankPhoto) {
-        const path = await uploadFileToStorage(fileData.bankPhoto, 'bank_account', 'bank')
-        updateData.bank_photo = path
+      if (fileData.signature) {
+        const path = await uploadFileToStorage(fileData.signature, 'signature', 'signature')
+        documentsData.signature = path
       }
 
-      // 簽名已移除，不再上傳簽名檔案
+      // 4. 上傳附加檔案
+      const validDocuments = uploadedDocuments.filter(doc => doc.file !== null)
 
-      // 4. 更新資料庫記錄（如果有檔案上傳）
-      if (Object.keys(updateData).length > 0) {
-        const { error: updateError } = await supabase
-          .from('disaster_applications')
-          .update(updateData)
-          .eq('id', newApplicationId)
+      if (validDocuments.length > 0) {
+        console.log('開始上傳附加檔案:', validDocuments.length, '個')
 
-        if (updateError) throw updateError
+        const addonsDocsData = []
+
+        for (let i = 0; i < validDocuments.length; i++) {
+          const doc = validDocuments[i]
+          if (doc.file) {
+            try {
+              // 使用英文類型 + 索引編號（如果同類型有多個）
+              const englishType = getEnglishDocType(doc.type)
+              const typeIndex = validDocuments.slice(0, i + 1).filter(d => d.type === doc.type).length
+              const docTypeName = typeIndex > 1 ? `${englishType}${typeIndex}` : englishType
+
+              const path = await uploadFileToStorage(doc.file, 'addons_docs', docTypeName)
+
+              addonsDocsData.push({
+                id: doc.id,
+                type: doc.type,
+                customType: doc.customType,
+                filePath: path,
+                uploadedAt: new Date().toISOString()
+              })
+
+              console.log('✅ 附件上傳成功:', path)
+            } catch (error) {
+              console.error('❌ 附件上傳失敗:', doc.type, error)
+              throw new Error(`附件上傳失敗: ${doc.customType || doc.type}`)
+            }
+          }
+        }
+
+        if (addonsDocsData.length > 0) {
+          documentsData.addons_docs = addonsDocsData
+        }
+      }
+
+      // 5. 更新 documents JSONB 欄位
+      if (Object.keys(documentsData).length > 0) {
+        console.log('準備更新 documents:', {
+          uuid: newApplicationId,
+          documentsData
+        })
+
+        const { data: updateResult, error: updateError } = await supabase
+          .from('village_applications')
+          .update({ documents: documentsData })
+          .eq('uuid', newApplicationId)
+          .select()
+
+        if (updateError) {
+          console.error('更新文件資料失敗:', updateError)
+          throw updateError
+        }
+
+        console.log('✅ 所有文件已儲存到資料庫，更新結果:', updateResult)
+      } else {
+        console.log('⚠️ 沒有文件需要更新')
       }
 
       // 6. 完成
@@ -255,7 +342,7 @@ export default function NewApplicationPage() {
   // 第一步：個資授權同意書
   if (currentStep === 'consent-form') {
     return (
-      <div className="min-h-screen flex flex-col">
+      <div className="min-h-screen flex flex-col overflow-x-hidden">
         {/* Header - RWD 友善 */}
         <div className="bg-background border-b border-divider p-3 md:p-4">
           {/* 桌面版 Header */}
@@ -263,7 +350,7 @@ export default function NewApplicationPage() {
             <div className="flex items-center gap-4">
               <Logo width={40} height={40} />
               <div>
-                <h1 className="text-xl font-bold">救災個資收集申請</h1>
+                <h1 className="text-xl font-bold">救災個資收集申請 - {village}</h1>
                 <p className="text-sm text-default-500">個資收集同意聲明 (1/3)</p>
               </div>
             </div>
@@ -271,7 +358,6 @@ export default function NewApplicationPage() {
               <Progress value={33} size="sm" className="w-24" aria-label="進度 33%" />
               <ThemeSwitcher />
               <LanguageSwitcher />
-              <Button variant="ghost" onClick={() => router.push('/dashboard')}>返回</Button>
             </div>
           </div>
 
@@ -279,24 +365,12 @@ export default function NewApplicationPage() {
           <div className="md:hidden space-y-3">
             <div className="flex justify-between items-center">
               <Logo width={32} height={32} />
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  onClick={() => router.push('/dashboard')}
-                  size="sm"
-                  className="px-2"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z" />
-                  </svg>
-                </Button>
-                <MobileMenu showLogout={true} />
-              </div>
+              <MobileMenu showLogout={true} />
             </div>
             <div className="space-y-2">
-              <h1 className="text-lg font-bold">救災個資收集申請</h1>
+              <h1 className="text-lg font-bold">救災個資收集申請 - {village}</h1>
               <div className="flex justify-between items-center">
-                <p className="text-sm text-default-500">個資授權同意書</p>
+                <p className="text-sm text-default-500">個資收集同意聲明</p>
                 <span className="text-xs text-default-400">1/3</span>
               </div>
               <Progress value={33} color="primary" size="sm" aria-label="進度 33%" />
@@ -305,8 +379,8 @@ export default function NewApplicationPage() {
         </div>
 
         {/* Container */}
-        <div className="flex-1 bg-content1 p-4">
-          <div className="max-w-4xl mx-auto h-full">
+        <div className="flex-1 bg-content1 p-4 overflow-x-hidden">
+          <div className="max-w-4xl mx-auto h-full w-full">
             <Card className="shadow-2xl h-full">
               <CardHeader className="pb-2">
               </CardHeader>
@@ -433,7 +507,7 @@ export default function NewApplicationPage() {
   // 第三步：基本資料表單
   if (currentStep === 'application-form') {
     return (
-      <div className="min-h-screen flex flex-col">
+      <div className="min-h-screen flex flex-col overflow-x-hidden">
         {/* Header - RWD 友善 */}
         <div className="bg-background border-b border-divider p-3 md:p-4">
           {/* 桌面版 Header */}
@@ -485,8 +559,8 @@ export default function NewApplicationPage() {
         </div>
 
         {/* Container */}
-        <div className="flex-1 p-4 md:p-8 overflow-y-auto">
-          <div className="max-w-4xl mx-auto">
+        <div className="flex-1 p-4 md:p-8 overflow-y-auto overflow-x-hidden">
+          <div className="max-w-4xl mx-auto w-full">
             {/* 子步驟 1: 身份證拍照與 OCR */}
             {currentSubStep === 1 && (
               <Card className="shadow-lg">
@@ -510,7 +584,10 @@ export default function NewApplicationPage() {
                             const imageUrl = URL.createObjectURL(file)
                             setFormData(prev => ({ ...prev, front_id_photo: imageUrl }))
 
-                            // 呼叫 OCR API（圖片會在 xinference-client 中轉換為 base64）
+                            // 儲存 File 物件以便稍後上傳到 Supabase
+                            setFileData(prev => ({ ...prev, frontIdPhoto: file }))
+
+                            // 呼叫後端 OCR API
                             try {
                               setIsProcessingOCR(true)
                               setOCRMessage('AI 正在辨識身分證正面，請稍候...')
@@ -526,7 +603,7 @@ export default function NewApplicationPage() {
 
                               if (response.ok) {
                                 const result = await response.json()
-                                if (result.data) {
+                                if (result.success && result.data) {
                                   setFormData(prev => ({
                                     ...prev,
                                     victim_name: result.data.name || prev.victim_name,
@@ -592,6 +669,20 @@ export default function NewApplicationPage() {
                             </p>
                           )}
                         </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1">
+                            性別
+                          </label>
+                          <div className={`w-full px-3 py-2 border rounded-lg bg-default-100 text-foreground ${
+                            getGender(formData.id_number)
+                              ? 'border-default-300'
+                              : 'border-default-200'
+                          }`}>
+                            {getGender(formData.id_number) || '請先輸入身分證字號'}
+                          </div>
+                          <p className="text-xs text-default-400 mt-1">根據身分證字號自動判斷</p>
+                        </div>
                       </div>
                     </div>
 
@@ -608,7 +699,10 @@ export default function NewApplicationPage() {
                             const imageUrl = URL.createObjectURL(file)
                             setFormData(prev => ({ ...prev, back_id_photo: imageUrl }))
 
-                            // 呼叫 OCR API
+                            // 儲存 File 物件以便稍後上傳到 Supabase
+                            setFileData(prev => ({ ...prev, backIdPhoto: file }))
+
+                            // 呼叫後端 OCR API
                             try {
                               setIsProcessingOCR(true)
                               setOCRMessage('AI 正在辨識身分證背面，請稍候...')
@@ -624,7 +718,7 @@ export default function NewApplicationPage() {
 
                               if (response.ok) {
                                 const result = await response.json()
-                                if (result.data) {
+                                if (result.success && result.data) {
                                   setFormData(prev => ({
                                     ...prev,
                                     address: result.data.address || prev.address
@@ -662,13 +756,15 @@ export default function NewApplicationPage() {
                         </div>
                       </div>
                     </div>
+
                   </div>
                 </CardBody>
               </Card>
             )}
 
             {/* 子步驟 2: 銀行存摺拍照與資料填寫 */}
-            {currentSubStep === 2 && (
+            {/* ARCHIVED: 銀行存摺資料功能已保存但不使用 */}
+            {false && currentSubStep === 2 && (
               <Card className="shadow-lg">
                 <CardHeader className="flex flex-col items-start space-y-2">
                   <h2 className="text-lg font-bold">銀行存摺資料</h2>
@@ -685,7 +781,10 @@ export default function NewApplicationPage() {
                         const imageUrl = URL.createObjectURL(file)
                         setFormData(prev => ({ ...prev, bank_photo: imageUrl }))
 
-                        // 呼叫 OCR API 進行存摺識別
+                        // 儲存 File 物件以便稍後上傳到 Supabase
+                        setFileData(prev => ({ ...prev, bankPhoto: file }))
+
+                        // 呼叫後端 OCR API 進行存摺識別
                         try {
                           setIsProcessingOCR(true)
                           setOCRMessage('AI 正在辨識銀行存摺，請稍候...')
@@ -701,49 +800,84 @@ export default function NewApplicationPage() {
 
                           if (response.ok) {
                             const result = await response.json()
-                            if (result.data) {
-                              // 自動填入識別的銀行資料
-                              // 處理可能的欄位名稱變化
-                              const bankName = result.data.銀行 || result.data.bank || result.data.bankName
-                              const branch = result.data.分行 || result.data.分會 || result.data.分社 || result.data.branch || result.data.branchName
-                              const accountName = result.data.戶名 || result.data.accountName || result.data.name
-                              const accountNumber = result.data.銀行帳號 || result.data.帳號 || result.data.accountNumber || result.data.account
+                            console.log('OCR 辨識結果:', result.data)
 
-                              // 如果識別到銀行名稱，嘗試找到對應的銀行代碼
-                              if (bankName) {
-                                const bank = bankCodes.find(b => b.name.includes(bankName) || bankName.includes(b.name))
-                                if (bank) {
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    bank_code: bank.code,
-                                    bank_name: bank.name
-                                  }))
+                            if (result.success && result.data) {
+                              // 自動填入識別的銀行資料
+                              const bankCode = result.data.銀行代碼 || result.data.bankCode
+                              const branchCode = result.data.分行代碼 || result.data.branchCode
+                              const branchName = result.data.分行名稱 || result.data.分行 || result.data.分會 || result.data.branchName
+                              const accountNumber = result.data.銀行帳號 || result.data.帳號 || result.data.accountNumber || result.data.account
+                              const accountName = result.data.戶名 || result.data.accountName || result.data.name
+
+                              console.log('OCR 解析結果:', { bankCode, branchCode, branchName, accountNumber, accountName })
+
+                              // 先處理並準備所有資料
+                              const cleanedBankCode = bankCode ? bankCode.replace(/[^0-9]/g, '').substring(0, 3) : ''
+                              const cleanedAccount = accountNumber ? accountNumber.replace(/[\s\-]/g, '') : ''
+                              const cleanedBranchCode = branchCode ? branchCode.replace(/[^0-9]/g, '') : ''
+
+                              // 一次性更新所有表單資料（避免非同步問題）
+                              const updates: any = {}
+
+                              // 銀行代碼
+                              if (cleanedBankCode.length === 3) {
+                                const bank = bankCodes.find(b => b.code === cleanedBankCode && b.branch_code === null)
+                                updates.bank_code = cleanedBankCode
+                                updates.bank_name = bank?.name || ''
+                              }
+
+                              // 銀行帳號
+                              if (cleanedAccount) {
+                                updates.bank_account = cleanedAccount
+                              }
+
+                              // 分行代碼和名稱
+                              if (cleanedBranchCode && cleanedBankCode) {
+                                // 優先使用 OCR 辨識的分行代碼
+                                const matchedBranch = bankCodes.find(b =>
+                                  b.code === cleanedBankCode &&
+                                  b.branch_code === cleanedBranchCode
+                                )
+
+                                if (matchedBranch) {
+                                  updates.branch_code = cleanedBranchCode
+                                  updates.bank_branch = matchedBranch.branch_name || branchName || ''
+                                  console.log('✅ 找到匹配分行:', matchedBranch)
+                                } else {
+                                  updates.branch_code = cleanedBranchCode
+                                  updates.bank_branch = branchName || ''
+                                  console.log('⚠️ 資料庫中找不到該分行，使用 OCR 結果')
+                                }
+                              } else if (branchName && cleanedBankCode) {
+                                // 如果沒有分行代碼，用分行名稱反查
+                                const matchedBranch = bankCodes.find(b =>
+                                  b.code === cleanedBankCode &&
+                                  b.branch_name &&
+                                  (b.branch_name.includes(branchName) || branchName.includes(b.branch_name))
+                                )
+
+                                if (matchedBranch && matchedBranch.branch_code) {
+                                  updates.branch_code = matchedBranch.branch_code
+                                  updates.bank_branch = matchedBranch.branch_name || branchName
+                                  console.log('✅ 用名稱反查找到分行:', matchedBranch)
+                                } else {
+                                  updates.bank_branch = branchName
+                                  console.log('⚠️ 無法反查分行代碼，只填入名稱')
                                 }
                               }
 
-                              // 填入其他識別的資料
-                              if (branch) {
-                                setFormData(prev => ({
-                                  ...prev,
-                                  bank_branch: branch
-                                }))
-                              }
-
+                              // 戶名
                               if (accountName) {
-                                setFormData(prev => ({
-                                  ...prev,
-                                  account_name: accountName
-                                }))
+                                updates.account_name = accountName
                               }
 
-                              if (accountNumber) {
-                                // 清理帳號中的空格或破折號
-                                const cleanedAccount = accountNumber.replace(/[\s\-]/g, '')
-                                setFormData(prev => ({
-                                  ...prev,
-                                  bank_account: cleanedAccount
-                                }))
-                              }
+                              // 一次性更新所有欄位
+                              console.log('準備更新表單:', updates)
+                              setFormData(prev => ({
+                                ...prev,
+                                ...updates
+                              }))
                             }
                           }
                         } catch (error) {
@@ -783,24 +917,6 @@ export default function NewApplicationPage() {
 
                     <div>
                       <label className="block text-sm font-medium text-foreground mb-2">
-                        分行（分會） <span className="text-danger">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.bank_branch}
-                        aria-label="分行（分會）"
-                        onChange={(e) => setFormData(prev => ({ ...prev, bank_branch: e.target.value }))}
-                        placeholder="請輸入分行或分會名稱"
-                        className={`w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 ${
-                          formData.bank_branch.trim()
-                            ? 'border-success focus:border-success focus:ring-success/20'
-                            : 'border-default-300 focus:border-primary focus:ring-primary/20'
-                        }`}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
                         銀行帳號 <span className="text-danger">*</span>
                       </label>
                       <input
@@ -824,6 +940,25 @@ export default function NewApplicationPage() {
                       {formData.bank_account && formData.bank_account.length > 0 && !/^[0-9]{5,20}$/.test(formData.bank_account) && (
                         <p className="text-xs text-danger mt-1">{i18n.language === 'zh-TW' ? '請輸入5-20位數字' : 'Enter 5-20 digits'}</p>
                       )}
+                    </div>
+
+                    <div>
+                      <BranchSelector
+                        bankCodes={bankCodes}
+                        selectedBankCode={formData.bank_code}
+                        selectedBranchCode={formData.branch_code}
+                        onSelectionChange={(branchCode, branchName) => {
+                          setFormData(prev => ({
+                            ...prev,
+                            branch_code: branchCode,
+                            bank_branch: branchName
+                          }))
+                        }}
+                        label="分行（分會）"
+                        placeholder="請選擇分行或分會"
+                        isRequired
+                      />
+                      <p className="text-xs text-default-400 mt-1">格式：0037 - 營業部</p>
                     </div>
 
                     <div>
@@ -916,57 +1051,6 @@ export default function NewApplicationPage() {
                     </div>
                   </div>
 
-                  {/* 銀行資料確認 */}
-                  <div className="bg-content2 rounded-lg p-6">
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-md font-semibold text-primary">銀行存摺資料</h3>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        color="primary"
-                        onPress={() => setCurrentSubStep(2)}
-                        className="min-w-unit-20"
-                      >
-                        修改
-                      </Button>
-                    </div>
-                    <div className="grid md:grid-cols-2 gap-4">
-                      {/* 存摺照片預覽 */}
-                      <div className="space-y-3">
-                        <h4 className="text-sm font-medium text-default-600">存摺照片</h4>
-                        {formData.bank_photo ? (
-                          <div className="relative w-32 h-24 border rounded overflow-hidden">
-                            <img src={formData.bank_photo} alt="銀行存摺" className="w-full h-full object-cover" />
-                          </div>
-                        ) : (
-                          <div className="w-32 h-24 border rounded flex items-center justify-center bg-default-100 text-default-400 text-xs">
-                            未提供
-                          </div>
-                        )}
-                      </div>
-
-                      {/* 銀行資料 */}
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-sm text-default-500">銀行代碼：</span>
-                          <span className="text-sm font-medium">{formData.bank_code ? `${formData.bank_code} - ${formData.bank_name}` : '未填寫'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-sm text-default-500">分行（分會）：</span>
-                          <span className="text-sm font-medium">{formData.bank_branch || '未填寫'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-sm text-default-500">銀行帳號：</span>
-                          <span className="text-sm font-medium">{formData.bank_account || '未填寫'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-sm text-default-500">戶名：</span>
-                          <span className="text-sm font-medium">{formData.account_name || '未填寫'}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
                   {/* 簽名區域 - 選填 */}
                   <div className="bg-content2 rounded-lg p-6">
                     <div className="flex justify-between items-center mb-4">
@@ -977,11 +1061,15 @@ export default function NewApplicationPage() {
                       如您方便，可在此處簽名。若不方便在電腦上簽名，可選擇略過此步驟。
                     </p>
                     <SignatureCanvas
-                      onSave={(signature) => {
-                        setFormData(prev => ({ ...prev, signature }))
+                      onSave={(signatureFile) => {
+                        // 儲存 File 物件以便上傳
+                        setFileData(prev => ({ ...prev, signature: signatureFile }))
+
+                        // 建立預覽用的 Object URL
+                        const imageUrl = URL.createObjectURL(signatureFile)
+                        setFormData(prev => ({ ...prev, signature: imageUrl }))
                       }}
-                      width={300}
-                      height={150}
+                      label="電子簽名"
                       currentSignature={formData.signature}
                     />
                     <p className="text-xs text-default-500 mt-2">
@@ -1150,7 +1238,9 @@ export default function NewApplicationPage() {
               size="lg"
               onClick={() => {
                 if (currentSubStep < 4) {
-                  setCurrentSubStep(currentSubStep + 1)
+                  // 跳過子步驟2（銀行存摺資料已archive）
+                  const nextStep = currentSubStep === 1 ? 3 : currentSubStep + 1
+                  setCurrentSubStep(nextStep)
                 } else {
                   // 進入步驟三：附加檔案上傳
                   setCurrentStep('document-upload')
@@ -1164,17 +1254,9 @@ export default function NewApplicationPage() {
                   /^[A-Z][0-9]{9}$/.test(formData.id_number) &&
                   formData.address.trim()
                 )) ||
-                (currentSubStep === 2 && !(
-                  formData.bank_code &&
-                  formData.bank_branch.trim() &&
-                  formData.bank_account &&
-                  /^[0-9]{5,20}$/.test(formData.bank_account) &&
-                  formData.account_name.trim()
-                )) ||
-                // 簽名現在是選填的，移除驗證
-                // (currentSubStep === 3 && !formData.signature) ||
+                // 子步驟3（簽名）現在是選填的，無需驗證
                 (currentSubStep === 4 && (
-                  !formData.contactOption || // 沒有選擇任何選項
+                  !formData.contactOption ||
                   (formData.contactOption === 'provide' && !formData.phone_number.trim())
                 ))
               }
@@ -1345,17 +1427,17 @@ export default function NewApplicationPage() {
   if (currentStep === 'document-upload') {
 
     const documentTypes = [
-      { value: 'lease', label: '租賃契約' },
-      { value: 'household-registration', label: '戶籍謄本' },
-      { value: 'property-ownership', label: '房屋所有權狀' },
-      { value: 'other', label: '其他' }
+      { value: '租賃契約', label: '租賃契約' },
+      { value: '戶籍謄本', label: '戶籍謄本' },
+      { value: '房屋所有權狀', label: '房屋所有權狀' },
+      { value: '其他', label: '其他' }
     ]
 
     // 新增空白上傳區塊
     const handleAddDocument = () => {
       const newDoc = {
         id: Date.now().toString(),
-        type: 'lease',  // 預設選擇租賃契約
+        type: '租賃契約',  // 預設選擇租賃契約
         customType: '',
         file: null,
         preview: null
@@ -1395,9 +1477,9 @@ export default function NewApplicationPage() {
     }
 
     return (
-      <div className="min-h-screen flex flex-col">
+      <div className="min-h-screen flex flex-col overflow-x-hidden">
         {/* Header */}
-        <div className="bg-background border-b border-divider p-3 md:p-4">
+        <div className="bg-background border-b border-divider p-3 md:p-4 w-full">
           <div className="hidden md:flex justify-between items-center max-w-6xl mx-auto">
             <div className="flex items-center gap-4">
               <Logo width={40} height={40} />
@@ -1444,8 +1526,8 @@ export default function NewApplicationPage() {
         </div>
 
         {/* Container */}
-        <div className="flex-1 p-4 md:p-8 overflow-y-auto bg-gray-50 dark:bg-gray-900">
-          <div className="max-w-4xl mx-auto">
+        <div className="flex-1 p-4 md:p-8 overflow-y-auto overflow-x-hidden bg-gray-50 dark:bg-gray-900">
+          <div className="max-w-4xl mx-auto w-full">
             <Card className="shadow-lg">
               <CardHeader>
                 <h2 className="text-2xl font-bold">其他相關文件上傳</h2>
@@ -1490,7 +1572,7 @@ export default function NewApplicationPage() {
                           </select>
 
                           {/* 當選擇「其他」時顯示自訂輸入框 */}
-                          {doc.type === 'other' && (
+                          {doc.type === '其他' && (
                             <input
                               type="text"
                               value={doc.customType || ''}
@@ -1505,9 +1587,9 @@ export default function NewApplicationPage() {
                         {!doc.file ? (
                           <CameraCapture
                             label={
-                              doc.type === 'other' && doc.customType
+                              doc.type === '其他' && doc.customType
                                 ? doc.customType
-                                : documentTypes.find(t => t.value === doc.type)?.label || '文件'
+                                : doc.type
                             }
                             onCapture={(file) => handleFileCapture(doc.id, file)}
                             currentImage={null}
@@ -1585,15 +1667,7 @@ export default function NewApplicationPage() {
               color="success"
               size="lg"
               onClick={async () => {
-                // 上傳附加檔案（如果有）
-                const validDocuments = uploadedDocuments.filter(doc => doc.file !== null)
-
-                if (validDocuments.length > 0) {
-                  // TODO: 上傳附加檔案到 Supabase Storage
-                  console.log('上傳附加檔案:', validDocuments)
-                }
-
-                // 提交申請
+                // 直接呼叫 handleFinalSubmit，附件會在裡面一起處理
                 await handleFinalSubmit()
               }}
               isLoading={isSubmitting}

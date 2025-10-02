@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import xinferenceClient from '@/lib/xinference-client'
 
+export const dynamic = 'force-dynamic'
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
@@ -46,7 +48,7 @@ export async function POST(request: NextRequest) {
         success: true,
         data: ocrResult.data,
         message: 'OCR processing completed',
-        rawResponse: ocrResult.rawResponse // 可選：包含原始回應供調試
+        rawResponse: ocrResult.rawResponse
       })
     } else {
       return NextResponse.json(

@@ -43,7 +43,7 @@ function ApplicationDetailClient() {
 
       setCurrentUser(user)
 
-      // 獲取申請詳細資訊
+      // 獲取申請詳細資訊（包含銀行和分行資訊）
       const { data, error: fetchError } = await supabase
         .from('disaster_applications')
         .select('*')
@@ -54,24 +54,53 @@ function ApplicationDetailClient() {
         throw fetchError
       }
 
-      setApplication(data)
+      // 查詢銀行名稱和分行名稱
+      let bankName = ''
+      let branchDisplay = ''
 
-      // 設定申請人名稱
-      setApplicantName(data.victim_name)
-
-      // 查詢銀行名稱
       if (data.bank_code) {
-        const { data: bankData, error: bankError } = await supabase
+        // 查詢銀行名稱（總行）
+        const { data: bankData } = await supabase
           .from('bank_codes')
           .select('name')
           .eq('code', data.bank_code)
+          .is('branch_code', null)
           .limit(1)
           .single()
 
-        if (bankData && !bankError) {
-          setBankName(bankData.name)
+        if (bankData) {
+          bankName = bankData.name
+        }
+
+        // 查詢分行名稱（如果有 branch_code）
+        if (data.branch_code) {
+          const { data: branchData } = await supabase
+            .from('bank_codes')
+            .select('branch_name')
+            .eq('code', data.bank_code)
+            .eq('branch_code', data.branch_code)
+            .limit(1)
+            .single()
+
+          if (branchData && branchData.branch_name) {
+            // 格式：{branch_code} - {branch_name}
+            branchDisplay = `${data.branch_code} - ${branchData.branch_name}`
+          } else {
+            branchDisplay = data.branch_code
+          }
         }
       }
+
+      // 將查詢結果附加到 data 中
+      const enrichedData = {
+        ...data,
+        bank_name: bankName,
+        bank_branch: branchDisplay
+      }
+
+      setApplication(enrichedData)
+      setApplicantName(data.victim_name)
+      setBankName(bankName)
 
     } catch (err) {
       console.error('Error fetching application detail:', err)
@@ -184,17 +213,15 @@ function ApplicationDetailClient() {
             {isOwner && application.status === 'submitted' && (
               <Button
                 color="primary"
+                variant="bordered"
+                isDisabled
                 startContent={
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z" />
                   </svg>
                 }
-                onClick={() => {
-                  // 編輯功能（後續開發）
-                  console.log('Edit application:', application.id)
-                }}
               >
-                {i18n.language === 'zh-TW' ? '編輯申請' : 'Edit Application'}
+                {i18n.language === 'zh-TW' ? '編輯申請（未來功能）' : 'Edit Application (Coming Soon)'}
               </Button>
             )}
           </div>
@@ -311,8 +338,20 @@ function ApplicationDetailClient() {
                       <span className="ml-2 font-mono">{application.bank_code}</span>
                     </div>
                     <div>
+                      <span className="text-default-500">{i18n.language === 'zh-TW' ? '銀行名稱' : 'Bank Name'}：</span>
+                      <span className="ml-2">{application.bank_name || bankName || '-'}</span>
+                    </div>
+                    <div>
+                      <span className="text-default-500">{i18n.language === 'zh-TW' ? '分行（分會）' : 'Branch'}：</span>
+                      <span className="ml-2">{application.bank_branch || '-'}</span>
+                    </div>
+                    <div>
                       <span className="text-default-500">{i18n.language === 'zh-TW' ? '銀行帳號' : 'Account'}：</span>
                       <span className="ml-2 font-mono">{application.bank_account}</span>
+                    </div>
+                    <div>
+                      <span className="text-default-500">{i18n.language === 'zh-TW' ? '戶名' : 'Account Name'}：</span>
+                      <span className="ml-2">{application.account_name || '-'}</span>
                     </div>
                   </div>
 
@@ -339,8 +378,9 @@ function ApplicationDetailClient() {
             </Card>
           </div>
 
-          {/* 側邊欄 - 電子簽名 */}
-          <div>
+          {/* 側邊欄 */}
+          <div className="space-y-6">
+            {/* 電子簽名 */}
             <Card>
               <CardHeader>
                 <h2 className="text-xl font-bold">
@@ -364,6 +404,53 @@ function ApplicationDetailClient() {
                 )}
               </CardBody>
             </Card>
+
+            {/* 附加文件 */}
+            {application.addons_docs && Array.isArray(application.addons_docs) && application.addons_docs.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <h2 className="text-xl font-bold">
+                    {i18n.language === 'zh-TW' ? '附加文件' : 'Additional Documents'}
+                  </h2>
+                </CardHeader>
+                <CardBody>
+                  <div className="space-y-4">
+                    {application.addons_docs.map((doc: any, index: number) => (
+                      <div key={doc.id || index} className="border rounded-lg p-3">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <h4 className="font-medium text-sm">
+                              {doc.customType || doc.type}
+                            </h4>
+                            <p className="text-xs text-default-400">
+                              {new Date(doc.uploadedAt).toLocaleString('zh-TW')}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="light"
+                            color="primary"
+                            onClick={() => window.open(getImageUrl(doc.filePath) || '', '_blank')}
+                          >
+                            查看
+                          </Button>
+                        </div>
+                        {doc.filePath && (
+                          <div className="aspect-video bg-content2 rounded overflow-hidden cursor-pointer">
+                            <img
+                              src={getImageUrl(doc.filePath) || ''}
+                              alt={doc.customType || doc.type}
+                              className="w-full h-full object-cover"
+                              onClick={() => window.open(getImageUrl(doc.filePath) || '', '_blank')}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </CardBody>
+              </Card>
+            )}
           </div>
         </div>
       </div>

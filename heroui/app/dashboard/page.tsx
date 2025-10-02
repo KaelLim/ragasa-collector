@@ -19,6 +19,7 @@ export default function DashboardPage() {
   const { t, i18n } = useTranslation()
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [isVillageModalOpen, setIsVillageModalOpen] = useState(false)
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false)
   const [downloadFormat, setDownloadFormat] = useState('xlsx')
   const [password, setPassword] = useState('')
@@ -191,13 +192,11 @@ export default function DashboardPage() {
           <Card
             className="hover:shadow-2xl hover:scale-105 transition-all duration-300 cursor-pointer group border-2 hover:border-primary"
             isPressable
-            as={Link}
-            href="/application/new"
+            onPress={() => setIsVillageModalOpen(true)}
           >
             <CardBody className="p-8 text-center space-y-6">
               <div className="flex justify-center">
                 <div className="p-6 bg-primary-100 rounded-full group-hover:bg-primary-200 transition-colors">
-                  {/* Add Document Icon */}
                   <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor" className="text-primary">
                     <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z M12,11L16,15H13.5V19H10.5V15H8L12,11Z" />
                   </svg>
@@ -330,6 +329,48 @@ export default function DashboardPage() {
                 isDisabled={!password}
               >
                 {isDownloading ? t('dashboard.downloading') : t('dashboard.download')}
+              </Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
+
+        {/* 村別選擇 Modal */}
+        <Modal
+          isOpen={isVillageModalOpen}
+          onClose={() => setIsVillageModalOpen(false)}
+          size="2xl"
+          placement="center"
+        >
+          <ModalContent>
+            <ModalHeader className="flex flex-col gap-1">
+              <h2 className="text-2xl font-bold">請選擇村別</h2>
+              <p className="text-sm text-default-500 font-normal">請選擇您要為哪個村進行申請</p>
+            </ModalHeader>
+            <ModalBody className="py-6">
+              <div className="grid grid-cols-1 gap-4">
+                {['大安', '大華', '大同'].map((village) => (
+                  <Button
+                    key={village}
+                    size="lg"
+                    color="primary"
+                    variant="shadow"
+                    className="h-16 text-xl font-bold justify-center"
+                    onClick={() => {
+                      setIsVillageModalOpen(false)
+                      router.push(`/application/new/${encodeURIComponent(village)}`)
+                    }}
+                  >
+                    {village}
+                  </Button>
+                ))}
+              </div>
+            </ModalBody>
+            <ModalFooter>
+              <Button
+                variant="light"
+                onPress={() => setIsVillageModalOpen(false)}
+              >
+                取消
               </Button>
             </ModalFooter>
           </ModalContent>

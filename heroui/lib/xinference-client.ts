@@ -300,4 +300,4 @@ class XinferenceOCRClient {
 const xinferenceClient = new XinferenceOCRClient()
 
 export default xinferenceClient
-export { XinferenceOCRClient, OCRResult }
+export type { XinferenceOCRClient, OCRResult }

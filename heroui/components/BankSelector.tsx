@@ -35,47 +35,38 @@ export default function BankSelector({
     }
   }, [selectedBankCode, bankCodes])
 
-  // 過濾銀行代碼列表
+  // 過濾銀行代碼列表（只顯示總行，branch_code 為 null 的項目）
+  const uniqueBanks = useMemo(() => {
+    // 只保留 branch_code 為 null 的總行資料
+    const mainBranches = bankCodes.filter(bank => bank.branch_code === null)
+
+    // 去重：同一個 code 只保留一筆
+    const seen = new Set<string>()
+    return mainBranches.filter(bank => {
+      if (seen.has(bank.code)) {
+        return false
+      }
+      seen.add(bank.code)
+      return true
+    })
+  }, [bankCodes])
+
   const filteredBanks = useMemo(() => {
-    if (!inputValue) return bankCodes
+    if (!inputValue) return uniqueBanks
 
     // 如果輸入值是完整的選擇結果（格式：004 - 臺灣銀行），顯示所有銀行
     if (inputValue.includes(' - ')) {
-      return bankCodes
+      return uniqueBanks
     }
 
     const searchTerm = inputValue.toLowerCase()
-    return bankCodes.filter(bank =>
+    return uniqueBanks.filter(bank =>
       bank.code.toLowerCase().includes(searchTerm) ||
       bank.name.toLowerCase().includes(searchTerm)
     )
-  }, [bankCodes, inputValue])
+  }, [uniqueBanks, inputValue])
 
-  // 按類型分組
-  const groupedBanks = useMemo(() => {
-    const groups: Record<string, BankCode[]> = {
-      bank: [],
-      postal: [],
-      credit_union: [],
-      farmers_association: []
-    }
-
-    filteredBanks.forEach(bank => {
-      groups[bank.type].push(bank)
-    })
-
-    return groups
-  }, [filteredBanks])
-
-  const getTypeLabel = (type: string) => {
-    switch (type) {
-      case 'bank': return '🏦 銀行'
-      case 'postal': return '📮 郵局'
-      case 'credit_union': return '🏛️ 信用合作社'
-      case 'farmers_association': return '🌾 農會'
-      default: return type
-    }
-  }
+  // 移除分組邏輯（新的 bank_codes 表沒有 type 欄位）
 
   const handleSelectionChange = (key: React.Key | null) => {
     if (key && typeof key === 'string') {

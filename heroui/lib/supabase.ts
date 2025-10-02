@@ -16,8 +16,10 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 export interface BankCode {
   id: number
   code: string
+  branch_code: string | null
   name: string
-  type: 'bank' | 'postal' | 'credit_union' | 'farmers_association'
+  branch_name: string | null
+  address: string | null
   created_at: string
 }
 
@@ -26,17 +28,53 @@ export interface DisasterApplication {
   user_id: string
   victim_name: string
   id_number: string
-  phone_number: string
+  phone_number: string | null
   address: string
   bank_code: string
-  bank_name?: string
-  bank_branch?: string
+  bank_name?: string | null
+  bank_branch?: string | null
   bank_account: string
-  account_name?: string
+  account_name?: string | null
   front_id_photo?: string
   back_id_photo?: string
   bank_photo?: string
+  signature?: string
+  addons_docs?: Array<{
+    id: string
+    type: string
+    customType?: string
+    filePath: string
+    uploadedAt: string
+  }>
   status: 'submitted' | 'reviewed' | 'approved' | 'rejected'
+  created_at: string
+  updated_at: string
+}
+
+export interface VillageApplication {
+  uuid: string
+  village: string
+  data: {
+    user_id: string
+    victim_name: string
+    id_number: string
+    phone_number: string | null
+    address: string
+    [key: string]: any
+  }
+  documents?: {
+    front_id_photo?: string
+    back_id_photo?: string
+    signature?: string
+    addons_docs?: Array<{
+      id: string
+      type: string
+      customType?: string
+      filePath: string
+      uploadedAt: string
+    }>
+    [key: string]: any
+  }
   created_at: string
   updated_at: string
 }

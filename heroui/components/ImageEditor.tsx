@@ -284,20 +284,20 @@ export default function ImageEditor({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      size="4xl"
+      size="full"
       scrollBehavior="inside"
     >
       <ModalContent>
         <ModalHeader className="flex flex-col gap-1">
           {label || (i18n.language === 'zh-TW' ? '編輯圖片' : 'Edit Image')}
         </ModalHeader>
-        <ModalBody>
-          <div className="flex flex-col lg:flex-row gap-4">
+        <ModalBody className="p-4">
+          <div className="flex flex-col lg:flex-row gap-4 h-full">
             {/* 圖片顯示區 */}
-            <div className="flex-1 bg-gray-100 rounded-lg p-4 flex items-center justify-center min-h-[400px]">
+            <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-4 flex items-center justify-center">
               <canvas
                 ref={canvasRef}
-                className="max-w-full h-auto border border-gray-300 rounded"
+                className="max-w-full max-h-full object-contain border border-gray-300 dark:border-gray-600 rounded"
               />
             </div>
 
