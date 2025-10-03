@@ -19,11 +19,9 @@ import MobileMenu from '@/components/MobileMenu'
 export default function ApplicationsPage() {
   const { t, i18n } = useTranslation()
   const [allApplications, setAllApplications] = useState<DisasterApplication[]>([])
-  const [myApplications, setMyApplications] = useState<DisasterApplication[]>([])
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeTab, setActiveTab] = useState('team')
   const [viewMode, setViewMode] = useState('card') // 'card' or 'table'
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
@@ -46,36 +44,39 @@ export default function ApplicationsPage() {
 
       setCurrentUser(user)
 
-      // 獲取所有申請記錄（團隊視圖）
-      const { data: allData, error: allError } = await supabase
-        .from('disaster_applications')
-        .select('*')
-        .order('created_at', { ascending: false })
+      // 從 Ragic 讀取所有申請記錄（使用 limit）
+      const response = await fetch('/api/ragic-list?limit=100')
 
-      if (allError) {
-        console.log('RLS 限制：無法查看團隊記錄', allError)
-        setAllApplications([]) // 設為空陣列
+      if (response.ok) {
+        const result = await response.json()
+
+        if (result.success) {
+          console.log('從 Ragic 載入記錄:', result.total, '筆')
+
+          // 轉換 Ragic 資料為 DisasterApplication 格式
+          const ragicData = result.records.map((record: any) => ({
+            id: String(record.ragicId),
+            user_id: user.id,
+            victim_name: record.name || '',
+            id_number: record.idNumber || '',
+            phone_number: null,
+            address: record.address || '',
+            bank_code: '',
+            bank_account: '',
+            status: 'submitted',
+            created_at: record.updatedAt || new Date().toISOString(),
+            updated_at: record.updatedAt || new Date().toISOString(),
+            // 新增樺加沙編號
+            village: record.village
+          }))
+
+          setAllApplications(ragicData)
+
+        } else {
+          throw new Error(result.error)
+        }
       } else {
-        console.log('團隊記錄查詢成功:', allData?.length)
-        setAllApplications(allData || [])
-      }
-
-      // 獲取個人申請記錄
-      const { data: myData, error: myError } = await supabase
-        .from('disaster_applications')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-
-      if (myError) {
-        throw myError
-      }
-
-      setMyApplications(myData || [])
-
-      // 如果沒有團隊權限，預設顯示個人記錄
-      if (allError) {
-        setActiveTab('personal')
+        throw new Error('Failed to fetch from Ragic')
       }
 
     } catch (err) {
@@ -261,82 +262,55 @@ export default function ApplicationsPage() {
           return (
             <Card
               key={application.id}
-              className="hover:shadow-lg transition-shadow cursor-pointer border-2 hover:border-primary"
-              isPressable
-              onClick={() => router.push(`/application-detail?id=${application.id}`)}
+              className="hover:shadow-lg transition-shadow border-2 hover:border-primary"
             >
-              <CardHeader className="flex flex-row justify-between items-start">
-                <div className="flex flex-col">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-lg font-semibold">{application.victim_name}</h3>
-                    {canEdit && isOwner && (
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-primary">
-                        <path d="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z" />
-                      </svg>
-                    )}
+              <CardHeader className="pb-3">
+                <div className="w-full">
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="text-xl font-bold">{application.victim_name}</h3>
+                    <Chip color="primary" variant="flat" size="sm" className="font-mono">
+                      {application.village}
+                    </Chip>
                   </div>
-                  <p className="text-xs text-default-500 font-mono">
-                    {i18n.language === 'zh-TW' ? '申請編號' : 'Application ID'}: {application.id}
-                  </p>
-                </div>
-                <div className="flex flex-col items-end gap-2">
-                  <Chip color={getStatusColor(application.status)} size="sm">
-                    {getStatusText(application.status)}
-                  </Chip>
-                  {!canEdit && (
-                    <div className="text-right">
-                      <p className="text-xs text-default-400 mb-1">
-                        {i18n.language === 'zh-TW' ? '申請人' : 'Applicant'}
-                      </p>
-                      <p className="text-xs font-medium">
-                        {application.victim_name}
-                      </p>
-                    </div>
-                  )}
                 </div>
               </CardHeader>
               <CardBody className="pt-0">
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-default-500">
-                        {i18n.language === 'zh-TW' ? '身分證' : 'ID'}:
-                      </span>
-                      <span className="ml-2">{application.id_number}</span>
-                    </div>
-                    <div>
-                      <span className="text-default-500">
-                        {i18n.language === 'zh-TW' ? '電話' : 'Phone'}:
-                      </span>
-                      <span className="ml-2">{application.phone_number}</span>
+                  <div className="flex items-center gap-2 text-sm">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-default-400">
+                      <path d="M12,4A4,4 0 0,1 16,8A4,4 0 0,1 12,12A4,4 0 0,1 8,8A4,4 0 0,1 12,4M12,14C16.42,14 20,15.79 20,18V20H4V18C4,15.79 7.58,14 12,14Z" />
+                    </svg>
+                    <span className="text-default-500">身分證：</span>
+                    <span className="font-mono">{application.id_number || '-'}</span>
+                  </div>
+
+                  <div className="flex items-start gap-2 text-sm">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-default-400 mt-0.5">
+                      <path d="M12,11.5A2.5,2.5 0 0,1 9.5,9A2.5,2.5 0 0,1 12,6.5A2.5,2.5 0 0,1 14.5,9A2.5,2.5 0 0,1 12,11.5M12,2A7,7 0 0,0 5,9C5,14.25 12,22 12,22C12,22 19,14.25 19,9A7,7 0 0,0 12,2Z" />
+                    </svg>
+                    <div className="flex-1">
+                      <span className="text-default-500">地址：</span>
+                      <span className="ml-1">{application.address || '-'}</span>
                     </div>
                   </div>
 
-                  <div className="text-sm">
-                    <span className="text-default-500">
-                      {i18n.language === 'zh-TW' ? '地址' : 'Address'}:
-                    </span>
-                    <span className="ml-2">{application.address}</span>
-                  </div>
-
-                  <div className="flex justify-between items-center pt-2 border-t border-divider">
+                  <div className="flex justify-between items-center pt-3 border-t">
                     <span className="text-xs text-default-400">
-                      {i18n.language === 'zh-TW' ? '提交時間' : 'Submitted'}: {formatDate(application.created_at)}
+                      {formatDate(application.updated_at)}
                     </span>
-                    <div className="flex gap-1">
-                      {application.front_id_photo && (
-                        <div className="w-2 h-2 bg-success rounded-full" title={i18n.language === 'zh-TW' ? '身分證正面' : 'ID Front'}></div>
-                      )}
-                      {application.back_id_photo && (
-                        <div className="w-2 h-2 bg-success rounded-full" title={i18n.language === 'zh-TW' ? '身分證反面' : 'ID Back'}></div>
-                      )}
-                      {application.bank_photo && (
-                        <div className="w-2 h-2 bg-success rounded-full" title={i18n.language === 'zh-TW' ? '銀行證明' : 'Bank Proof'}></div>
-                      )}
-                      {application.signature && (
-                        <div className="w-2 h-2 bg-success rounded-full" title={i18n.language === 'zh-TW' ? '電子簽名' : 'Signature'}></div>
-                      )}
-                    </div>
+                    <Button
+                      size="sm"
+                      color="primary"
+                      variant="flat"
+                      onClick={() => router.push(`/application/detail/${application.id}`)}
+                      endContent={
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z" />
+                        </svg>
+                      }
+                    >
+                      查看詳情
+                    </Button>
                   </div>
                 </div>
               </CardBody>
@@ -358,11 +332,11 @@ export default function ApplicationsPage() {
         }}
       >
         <TableHeader>
-          <TableColumn>{i18n.language === 'zh-TW' ? '姓名' : 'Name'}</TableColumn>
-          <TableColumn>{i18n.language === 'zh-TW' ? '身分證' : 'ID Number'}</TableColumn>
-          <TableColumn>{i18n.language === 'zh-TW' ? '電話' : 'Phone'}</TableColumn>
-          <TableColumn>{i18n.language === 'zh-TW' ? '提交時間' : 'Submitted'}</TableColumn>
-          <TableColumn>{i18n.language === 'zh-TW' ? '操作' : 'Actions'}</TableColumn>
+          <TableColumn>樺加沙編號</TableColumn>
+          <TableColumn>姓名</TableColumn>
+          <TableColumn>身分證</TableColumn>
+          <TableColumn>地址</TableColumn>
+          <TableColumn>操作</TableColumn>
         </TableHeader>
         <TableBody>
           {applications.map((application) => {
@@ -371,28 +345,25 @@ export default function ApplicationsPage() {
             return (
               <TableRow key={application.id}>
                 <TableCell>
-                  <div className="flex flex-col">
-                    <span className="font-medium">{application.victim_name}</span>
-                    <span className="text-xs text-default-400 font-mono">
-                      {application.id.slice(0, 8)}...
-                    </span>
-                  </div>
+                  <Chip color="primary" variant="flat" size="sm" className="font-mono">
+                    {application.village}
+                  </Chip>
                 </TableCell>
                 <TableCell>
-                  <span className="font-mono text-sm">{application.id_number}</span>
+                  <span className="font-medium">{application.victim_name}</span>
                 </TableCell>
                 <TableCell>
-                  <span className="text-sm">{application.phone_number}</span>
+                  <span className="font-mono text-sm">{application.id_number || '-'}</span>
                 </TableCell>
                 <TableCell>
-                  <span className="text-xs">{formatDate(application.created_at)}</span>
+                  <span className="text-sm">{application.address || '-'}</span>
                 </TableCell>
                 <TableCell>
                   <Button
                     size="sm"
                     variant="light"
                     color="primary"
-                    onClick={() => router.push(`/application-detail?id=${application.id}`)}
+                    onClick={() => router.push(`/application/detail/${application.id}`)}
                     startContent={
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z" />
@@ -490,42 +461,8 @@ export default function ApplicationsPage() {
           </Card>
         )}
 
-        {/* 團隊/個人切換 Tabs */}
-        <Tabs
-          selectedKey={activeTab}
-          onSelectionChange={(key) => setActiveTab(key as string)}
-          className="mb-6"
-          color="primary"
-        >
-          <Tab
-            key="team"
-            title={
-              <div className="flex items-center gap-2">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M16,4C18.11,4 19.8,5.69 19.8,7.8C19.8,9.91 18.11,11.6 16,11.6C13.89,11.6 12.2,9.91 12.2,7.8C12.2,5.69 13.89,4 16,4M16,13.4C18.78,13.4 24,14.79 24,17.6V20H8V17.6C8,14.79 13.22,13.4 16,13.4M8,4C10.11,4 11.8,5.69 11.8,7.8C11.8,9.91 10.11,11.6 8,11.6C5.89,11.6 4.2,9.91 4.2,7.8C4.2,5.69 5.89,4 8,4M8,13.4C10.78,13.4 16,14.79 16,17.6V20H0V17.6C0,14.79 5.22,13.4 8,13.4Z" />
-                </svg>
-                {i18n.language === 'zh-TW' ? '團隊記錄' : 'Team Records'}
-              </div>
-            }
-          >
-            {/* 團隊申請記錄 */}
-            {renderApplicationList(allApplications, false)}
-          </Tab>
-          <Tab
-            key="personal"
-            title={
-              <div className="flex items-center gap-2">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12,4A4,4 0 0,1 16,8A4,4 0 0,1 12,12A4,4 0 0,1 8,8A4,4 0 0,1 12,4M12,14C16.42,14 20,15.79 20,18V20H4V18C4,15.79 7.58,14 12,14Z" />
-                </svg>
-                {i18n.language === 'zh-TW' ? '我的記錄' : 'My Records'}
-              </div>
-            }
-          >
-            {/* 個人申請記錄 */}
-            {renderApplicationList(myApplications, true)}
-          </Tab>
-        </Tabs>
+        {/* 所有申請記錄 */}
+        {renderApplicationList(allApplications, false)}
 
         {/* 新增申請按鈕 */}
         <div className="fixed bottom-8 right-8">

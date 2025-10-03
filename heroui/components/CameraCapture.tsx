@@ -10,6 +10,7 @@ import EXIF from 'exif-js'
 
 interface CameraCaptureProps {
   onCapture: (file: File) => void
+  onClear?: () => void  // 新增清除回調
   label: string
   isRequired?: boolean
   currentImage?: string | null
@@ -17,6 +18,7 @@ interface CameraCaptureProps {
 
 export default function CameraCapture({
   onCapture,
+  onClear,
   label,
   isRequired = false,
   currentImage
@@ -34,6 +36,13 @@ export default function CameraCapture({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // 監聽 currentImage 變化，更新顯示
+  useEffect(() => {
+    if (currentImage) {
+      setCapturedImage(currentImage)
+    }
+  }, [currentImage])
 
   const startCamera = useCallback(async () => {
     setIsLoading(true)
@@ -193,7 +202,7 @@ export default function CameraCapture({
             <img
               src={capturedImage}
               alt={label}
-              className="w-full aspect-video object-cover rounded-lg mb-3"
+              className="w-full aspect-video object-contain bg-content2 mb-3"
             />
             {exifInfo && (
               <div className="text-xs text-gray-500 mb-2">
@@ -203,17 +212,23 @@ export default function CameraCapture({
             <div className="flex gap-2">
               <Button
                 variant="bordered"
+                color="danger"
+                onClick={() => {
+                  setCapturedImage(null)
+                  if (onClear) {
+                    onClear()  // 呼叫清除回調
+                  }
+                }}
+                className="flex-1"
+              >
+{i18n.language === 'zh-TW' ? '取消' : 'Cancel'}
+              </Button>
+              <Button
+                variant="bordered"
                 onClick={retakePhoto}
                 className="flex-1"
               >
 {i18n.language === 'zh-TW' ? '重新拍攝' : 'Retake'}
-              </Button>
-              <Button
-                color="success"
-                className="flex-1"
-                disabled
-              >
-{i18n.language === 'zh-TW' ? '已完成' : 'Completed'} ✓
               </Button>
             </div>
           </CardBody>

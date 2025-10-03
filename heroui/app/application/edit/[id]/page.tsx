@@ -17,35 +17,48 @@ import CameraCapture from '@/components/CameraCapture'
 import SignatureCanvas from '@/components/SignatureCanvas'
 import BankSelector from '@/components/BankSelector'
 import BranchSelector from '@/components/BranchSelector'
+import VillageSelector from '@/components/VillageSelector'
 import { supabase, type BankCode } from '@/lib/supabase'
 import { ocrClient } from '@/lib/ocr-client'
+import { ragicClient } from '@/lib/ragic-client'
+import { getRagicImageUrl } from '@/lib/ragic-utils'
 import { useCountdown } from '@/hooks/useCountdown'
 
-type FormStep = 'consent-form' | 'application-form' | 'document-upload' | 'completed'
+type FormStep = 'consent-form' | 'application-form' | 'document-upload' | 'data-confirmation' | 'completed'
 
 const steps = [
   { key: 'consent-form', title: '個資收集同意聲明', titleEn: 'Privacy Consent Declaration' },
   { key: 'application-form', title: '基本資料與證件拍照', titleEn: 'Basic Info & Document Photos' },
   { key: 'document-upload', title: '其他文件上傳', titleEn: 'Additional Documents Upload' },
+  { key: 'data-confirmation', title: '資料確認', titleEn: 'Data Confirmation' },
 ]
 
-export default function NewApplicationPage({ params }: { params: Promise<{ village: string }> }) {
+export default function EditApplicationPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id: ragicId } = use(params)
   const { t, i18n } = useTranslation()
   const router = useRouter()
-  const { village: rawVillage } = use(params)
-  const village = decodeURIComponent(rawVillage) // 解碼中文村名
-  const [currentStep, setCurrentStep] = useState<FormStep>('consent-form')
+  const [currentStep, setCurrentStep] = useState<FormStep>('application-form')
   const [isAgreed, setIsAgreed] = useState(false)
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [currentSubStep, setCurrentSubStep] = useState(1) // 第三步的子步驟
   const [applicationId, setApplicationId] = useState<string | null>(null)
+  const [villageExistsInRagic, setVillageExistsInRagic] = useState(false)
+  const [isLoadingData, setIsLoadingData] = useState(true)
 
   // 表單資料
   const [formData, setFormData] = useState({
+    village: '',  // 大村欄位
     victim_name: '',
     id_number: '',
     phone_number: '',
-    address: '',
+    // 身分證背面地址
+    id_city_district: '', // 縣市行政區
+    id_village_li: '',    // 村/里
+    id_address: '',       // 地址
+    // 戶籍謄本地址
+    household_city_district: '', // 縣市行政區
+    household_village_li: '',    // 村/里
+    household_address: '',       // 地址
     bank_code: '',
     bank_name: '',
     branch_code: '',
@@ -56,6 +69,7 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
     signature: '' as string,
     front_id_photo: '' as string,
     back_id_photo: '' as string,
+    household_doc_photo: '' as string,  // 戶籍謄本照片
     bank_photo: '' as string
   })
 
@@ -67,6 +81,7 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
   const [fileData, setFileData] = useState({
     frontIdPhoto: null as File | null,
     backIdPhoto: null as File | null,
+    householdDoc: null as File | null,  // 戶籍謄本
     bankPhoto: null as File | null,
     signature: null as File | null
   })
@@ -85,8 +100,7 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
   // 附加檔案上傳狀態 - 必須在頂層定義
   const [uploadedDocuments, setUploadedDocuments] = useState<Array<{
     id: string
-    type: string
-    customType?: string  // 當 type 為 'other' 時的自訂類型
+    customName: string  // 使用者自訂的文件名稱
     file: File | null
     preview: string | null
   }>>([])
@@ -96,16 +110,121 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
     autoStart: currentStep === 'consent-form'
   })
 
-  // 檢查用戶登入狀態
+  // 載入 Ragic 資料
   useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { user }, error } = await supabase.auth.getUser()
-      if (error || !user) {
-        router.push('/login')
+    const loadRagicData = async () => {
+      try {
+        // 檢查登入
+        const { data: { user }, error: userError } = await supabase.auth.getUser()
+        if (userError || !user) {
+          router.push('/login')
+          return
+        }
+
+        // 從 Ragic 讀取資料
+        const response = await fetch(`/api/ragic-detail?id=${ragicId}`)
+
+        if (!response.ok) {
+          throw new Error('無法載入資料')
+        }
+
+        const result = await response.json()
+
+        if (result.success) {
+          const data = result.data
+
+          // 預填表單資料
+          setFormData({
+            village: data.village || '',
+            victim_name: data.name || '',
+            id_number: data.idNumber || '',
+            phone_number: '',
+            id_city_district: data.cityDistrict || '',
+            id_village_li: data.villageLi || '',
+            id_address: data.address || '',
+            household_city_district: data.cityDistrict2 || '',
+            household_village_li: data.villageLi2 || '',
+            household_address: data.address2 || '',
+            bank_code: '',
+            bank_name: '',
+            branch_code: '',
+            bank_branch: '',
+            bank_account: '',
+            account_name: '',
+            contactOption: '' as '' | 'provide' | 'skip',
+            signature: '',
+            front_id_photo: data.frontIdPhoto ? getRagicImageUrl(data.frontIdPhoto) || '' : '',
+            back_id_photo: data.backIdPhoto ? getRagicImageUrl(data.backIdPhoto) || '' : '',
+            household_doc_photo: data.householdDoc ? getRagicImageUrl(data.householdDoc) || '' : '',
+            bank_photo: ''
+          })
+
+          // 處理其他佐證資料 (otherDocs 可能是字串或陣列)
+          if (data.otherDocs) {
+            console.log('🔍 原始 otherDocs:', data.otherDocs)
+
+            // 統一轉換為陣列格式
+            const otherDocsArray = Array.isArray(data.otherDocs) ? data.otherDocs : [data.otherDocs]
+            console.log('📋 轉換後的陣列:', otherDocsArray)
+
+            // 從 otherDocs 中提取簽名
+            const signatureDoc = otherDocsArray.find((doc: any) => {
+              if (!doc || doc === '') return false
+              const filename = doc.split('@')[1] || ''
+              return filename.toLowerCase().includes('signature')
+            })
+
+            if (signatureDoc) {
+              // 設定簽名到 formData
+              setFormData(prev => ({ ...prev, signature: getRagicImageUrl(signatureDoc) || null }))
+              console.log('✅ 找到簽名:', signatureDoc)
+            }
+
+            // 過濾掉簽名，只保留其他佐證文件
+            const docs = otherDocsArray
+              .filter((doc: any) => {
+                if (!doc || doc === '') return false
+                // 過濾掉 signature.png（簽名單獨處理）
+                const filename = doc.split('@')[1] || ''
+                const shouldInclude = !filename.toLowerCase().includes('signature')
+                console.log(`🔍 檔案 "${doc}" - 包含? ${shouldInclude}`)
+                return shouldInclude
+              })
+              .map((doc: any, index: number) => {
+                // 從 Ragic 檔名格式中提取自訂名稱
+                // 格式: hash@customName.jpg
+                const filename = doc.split('@')[1] || ''
+                const customName = filename.replace(/\.(jpg|png)$/i, '')
+
+                const docObj = {
+                  id: `ragic-doc-${index}`,
+                  customName: customName || `佐證資料 ${index + 1}`,
+                  file: null,  // 從 Ragic 載入的是 URL，不是 File 物件
+                  preview: getRagicImageUrl(doc)
+                }
+                console.log('📄 建立文件物件:', docObj)
+                return docObj
+              })
+
+            console.log('✅ 最終文件列表:', docs)
+            setUploadedDocuments(docs)
+          } else {
+            console.log('⚠️ 沒有 otherDocs 資料')
+          }
+
+          console.log('已載入 Ragic 資料:', data)
+        }
+      } catch (error) {
+        console.error('載入資料失敗:', error)
+        alert('無法載入申請資料')
+        router.push('/applications')
+      } finally {
+        setIsLoadingData(false)
       }
     }
-    checkAuth()
-  }, [router])
+
+    loadRagicData()
+  }, [ragicId, router])
 
   // 載入銀行代碼
   useEffect(() => {
@@ -169,28 +288,6 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
     return typeMap[docType] || 'other'
   }
 
-  // 上傳檔案到 Storage（使用 UUID v7 作為唯一檔名，保護隱私）
-  const uploadFileToStorage = async (file: File, folder: string, docType: string) => {
-    // 動態匯入 uuid
-    const { v7: uuidv7 } = await import('uuid')
-
-    const fileExt = file.type === 'image/png' ? 'png' : 'jpg'
-    const uniqueId = uuidv7()
-    // 將中文類型轉為英文以避免檔名問題
-    const englishType = getEnglishDocType(docType)
-    const fileName = `${folder}/${uniqueId}_${englishType}.${fileExt}`
-
-    const { data, error } = await supabase.storage
-      .from('media')
-      .upload(fileName, file, {
-        cacheControl: '3600',
-        upsert: true
-      })
-
-    if (error) throw error
-    return fileName
-  }
-
   // 提交完整申請
   const handleFinalSubmit = async () => {
     setIsSubmitting(true)
@@ -209,106 +306,124 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
         victim_name: formData.victim_name,
         id_number: formData.id_number,
         phone_number: formData.phone_number.trim() || null,
-        address: formData.address
+        // 身分證地址
+        id_city_district: formData.id_city_district || null,
+        id_village_li: formData.id_village_li || null,
+        id_address: formData.id_address,
+        // 戶籍謄本地址
+        household_city_district: formData.household_city_district || null,
+        household_village_li: formData.household_village_li || null,
+        household_address: formData.household_address || null
       }
 
-      // 插入到 village_applications 表
-      const { data: insertedData, error: insertError } = await supabase
+      // 檢查是否已存在相同 village 的記錄
+      const { data: existingData } = await supabase
         .from('village_applications')
-        .insert([{
-          village: village,
-          data: applicationData
-        }])
-        .select()
+        .select('uuid')
+        .eq('village', formData.village)
         .single()
 
-      if (insertError) throw insertError
+      let newApplicationId: string
 
-      const newApplicationId = insertedData.uuid
+      if (existingData) {
+        // 已存在，更新資料
+        console.log('⚠️ 發現重複的樺加沙編號，將覆蓋舊資料:', formData.village)
+
+        const { error: updateError } = await supabase
+          .from('village_applications')
+          .update({
+            data: applicationData,
+            updated_at: new Date().toISOString()
+          })
+          .eq('uuid', existingData.uuid)
+
+        if (updateError) throw updateError
+
+        newApplicationId = existingData.uuid
+      } else {
+        // 不存在，新增記錄
+        const { data: insertedData, error: insertError } = await supabase
+          .from('village_applications')
+          .insert([{
+            village: formData.village,
+            data: applicationData
+          }])
+          .select()
+          .single()
+
+        if (insertError) throw insertError
+
+        newApplicationId = insertedData.uuid
+      }
+
       setApplicationId(newApplicationId)
 
-      // 3. 上傳所有檔案並準備 documents JSONB
-      const documentsData: any = {}
+      // 3. 更新到 Ragic（主要資料庫）- 直接上傳圖片
+      console.log('🔄 開始更新到 Ragic...', ragicId)
 
+      // 準備 FormData，包含所有資料和圖片
+      const ragicFormData = new FormData()
+
+      // 基本資料
+      ragicFormData.append('ragicId', ragicId)
+      ragicFormData.append('village', formData.village)
+      ragicFormData.append('data', JSON.stringify(applicationData))
+
+      // 圖片檔案（直接傳 File 物件）
       if (fileData.frontIdPhoto) {
-        const path = await uploadFileToStorage(fileData.frontIdPhoto, 'front_id', 'front')
-        documentsData.front_id_photo = path
+        ragicFormData.append('front_id_photo', fileData.frontIdPhoto, 'front_id.jpg')
       }
-
       if (fileData.backIdPhoto) {
-        const path = await uploadFileToStorage(fileData.backIdPhoto, 'back_id', 'back')
-        documentsData.back_id_photo = path
+        ragicFormData.append('back_id_photo', fileData.backIdPhoto, 'back_id.jpg')
       }
-
+      if (fileData.householdDoc) {
+        ragicFormData.append('household_doc_photo', fileData.householdDoc, 'household.jpg')
+      }
       if (fileData.signature) {
-        const path = await uploadFileToStorage(fileData.signature, 'signature', 'signature')
-        documentsData.signature = path
+        ragicFormData.append('signature', fileData.signature, 'signature.png')
       }
 
-      // 4. 上傳附加檔案
-      const validDocuments = uploadedDocuments.filter(doc => doc.file !== null)
-
-      if (validDocuments.length > 0) {
-        console.log('開始上傳附加檔案:', validDocuments.length, '個')
-
-        const addonsDocsData = []
-
-        for (let i = 0; i < validDocuments.length; i++) {
-          const doc = validDocuments[i]
-          if (doc.file) {
-            try {
-              // 使用英文類型 + 索引編號（如果同類型有多個）
-              const englishType = getEnglishDocType(doc.type)
-              const typeIndex = validDocuments.slice(0, i + 1).filter(d => d.type === doc.type).length
-              const docTypeName = typeIndex > 1 ? `${englishType}${typeIndex}` : englishType
-
-              const path = await uploadFileToStorage(doc.file, 'addons_docs', docTypeName)
-
-              addonsDocsData.push({
-                id: doc.id,
-                type: doc.type,
-                customType: doc.customType,
-                filePath: path,
-                uploadedAt: new Date().toISOString()
-              })
-
-              console.log('✅ 附件上傳成功:', path)
-            } catch (error) {
-              console.error('❌ 附件上傳失敗:', doc.type, error)
-              throw new Error(`附件上傳失敗: ${doc.customType || doc.type}`)
-            }
-          }
+      // 附加文件
+      const validDocuments = uploadedDocuments.filter(doc => doc.file !== null && doc.customName.trim() !== '')
+      validDocuments.forEach((doc, index) => {
+        if (doc.file && doc.customName.trim()) {
+          const filename = `${doc.customName}.jpg`
+          ragicFormData.append(`addons_docs_${index}`, doc.file, filename)
+          ragicFormData.append(`addons_docs_${index}_name`, doc.customName)
         }
+      })
 
-        if (addonsDocsData.length > 0) {
-          documentsData.addons_docs = addonsDocsData
+      const ragicResponse = await fetch('/api/ragic-sync', {
+        method: 'POST',
+        body: ragicFormData
+      })
+
+      if (ragicResponse.ok) {
+        const ragicResult = await ragicResponse.json()
+        if (ragicResult.success) {
+          console.log('✅ Ragic 同步成功，Ragic ID:', ragicResult.ragicId)
+
+          // 將 Ragic ID 儲存回 Supabase
+          await supabase
+            .from('village_applications')
+            .update({
+              data: {
+                ...applicationData,
+                ragic_id: ragicResult.ragicId
+              }
+            })
+            .eq('uuid', newApplicationId)
+        } else {
+          console.error('❌ Ragic 同步失敗:', ragicResult.error)
+          alert(`注意：資料已儲存到系統，但同步到 Ragic 時發生錯誤：${ragicResult.error}`)
         }
-      }
-
-      // 5. 更新 documents JSONB 欄位
-      if (Object.keys(documentsData).length > 0) {
-        console.log('準備更新 documents:', {
-          uuid: newApplicationId,
-          documentsData
-        })
-
-        const { data: updateResult, error: updateError } = await supabase
-          .from('village_applications')
-          .update({ documents: documentsData })
-          .eq('uuid', newApplicationId)
-          .select()
-
-        if (updateError) {
-          console.error('更新文件資料失敗:', updateError)
-          throw updateError
-        }
-
-        console.log('✅ 所有文件已儲存到資料庫，更新結果:', updateResult)
       } else {
-        console.log('⚠️ 沒有文件需要更新')
+        const errorData = await ragicResponse.json()
+        console.error('❌ Ragic API 呼叫失敗:', errorData)
+        alert(`注意：資料已儲存到系統，但同步到 Ragic 時發生錯誤：${errorData.error}`)
       }
 
-      // 6. 完成
+      // 7. 完成
       setCurrentStep('completed')
     } catch (error) {
       console.error('提交錯誤:', error)
@@ -339,171 +454,7 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
 
   // 簽名驗證已移除（不再需要電子簽名）
 
-  // 第一步：個資授權同意書
-  if (currentStep === 'consent-form') {
-    return (
-      <div className="min-h-screen flex flex-col overflow-x-hidden">
-        {/* Header - RWD 友善 */}
-        <div className="bg-background border-b border-divider p-3 md:p-4">
-          {/* 桌面版 Header */}
-          <div className="hidden md:flex justify-between items-center max-w-6xl mx-auto">
-            <div className="flex items-center gap-4">
-              <Logo width={40} height={40} />
-              <div>
-                <h1 className="text-xl font-bold">救災個資收集申請 - {village}</h1>
-                <p className="text-sm text-default-500">個資收集同意聲明 (1/3)</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Progress value={33} size="sm" className="w-24" aria-label="進度 33%" />
-              <ThemeSwitcher />
-              <LanguageSwitcher />
-            </div>
-          </div>
-
-          {/* 手機版 Header */}
-          <div className="md:hidden space-y-3">
-            <div className="flex justify-between items-center">
-              <Logo width={32} height={32} />
-              <MobileMenu showLogout={true} />
-            </div>
-            <div className="space-y-2">
-              <h1 className="text-lg font-bold">救災個資收集申請 - {village}</h1>
-              <div className="flex justify-between items-center">
-                <p className="text-sm text-default-500">個資收集同意聲明</p>
-                <span className="text-xs text-default-400">1/3</span>
-              </div>
-              <Progress value={33} color="primary" size="sm" aria-label="進度 33%" />
-            </div>
-          </div>
-        </div>
-
-        {/* Container */}
-        <div className="flex-1 bg-content1 p-4 overflow-x-hidden">
-          <div className="max-w-4xl mx-auto h-full w-full">
-            <Card className="shadow-2xl h-full">
-              <CardHeader className="pb-2">
-              </CardHeader>
-              <CardBody className="flex flex-col h-full">
-                <div className="flex-1 overflow-y-auto p-6 bg-content2 rounded-lg border border-divider">
-                  <div className="space-y-6 text-foreground">
-                    <div className="text-center">
-                      <h3 className="text-xl font-bold text-primary mb-2">財團法人中華民國佛教慈濟慈善事業基金會</h3>
-                      <h4 className="text-lg font-semibold">蒐集個人資料告知事項暨當事人同意書</h4>
-                    </div>
-
-                    <div className="leading-relaxed">
-                      <p>財團法人中華民國佛教慈濟慈善事業基金會（下稱本會）依據個人資料保護法、本會之個人資料保護政策及辦法，在向您蒐集個人資料前，依法向您告知下列事項，敬請詳閱：</p>
-                    </div>
-
-                    <div>
-                      <p><strong>1.</strong> 本會基於章程業務、活動、社會服務、行政管理及宣傳推廣活動等目的，蒐集、處理及利用個人資料。</p>
-                    </div>
-
-                    <div>
-                      <p><strong>2.</strong> 本會蒐集之個人資料類別如填寫頁所示，請您填寫正確且最新及完整的個人資料，若有任何異動，請即時向本會更正。</p>
-                    </div>
-
-                    <div>
-                      <p><strong>3.</strong> 本會蒐集、處理、利用、傳輸您個人資料之期間、地區、對象及方式如下：</p>
-                      <div className="ml-4 space-y-2 mt-2">
-                        <p><strong>1)</strong> <strong>期間</strong>：本會僅於特定目的存續期間利用您個人資料，但因執行職務或業務所必須或經您同意者，不在此限。</p>
-                        <p><strong>2)</strong> <strong>地區</strong>：本會執行職務或業務之國內外地區。</p>
-                        <p><strong>3)</strong> <strong>對象</strong>：您個人資料將使用在本會、其他本會志業體、受本會委託處理相關事務之第三人、因履行契約所必要之第三人、其他業務相關之第三人、政府機構、其他未受中央目的事業主管機關限制國際傳輸之接收者。</p>
-                        <p><strong>4)</strong> <strong>方式</strong>：您個人資料將以自動化機器或其他非自動化之利用方式，並以合理方式使用。利用方式包括但不限於以言詞、書面、電話、簡訊、電子郵件、傳真、電子文件或其他合於當時科學技術之適當方式。</p>
-                      </div>
-                    </div>
-
-                    <div>
-                      <p><strong>4.</strong> 您得到本會官網聯絡窗口，就您個人資料向本會行使以下權利：(一)查詢或請求閱覽。(二)請求製給複製本。(三)請求補充或更正。(四)請求停止蒐集、處理及利用。(五)請求刪除。</p>
-                      <p className="mt-2">本會得依個人資料保護法及相關法律規定、執行職務及業務所必須或經您書面同意時，拒絕您行使上述權利。若您因行使上述權利，而致權益受損時，本會將不負相關賠償責任。</p>
-                    </div>
-
-                    <div>
-                      <p><strong>5.</strong> 您得自由選擇提供個人資料，如選擇您不提供個人資料，本會可能無法提供蒐集目的之相關服務。</p>
-                    </div>
-
-                    <div>
-                      <p><strong>6.</strong> 若因本同意書涉訟，您同意以中華民國法律為準據法，並以臺灣花蓮地方法院為第一審管轄法院。</p>
-                    </div>
-
-                    <div>
-                      <p><strong>7.</strong> 您同意本會留存此同意書，供日後取出查驗。</p>
-                    </div>
-
-                    <div className="border-t border-divider pt-6 mt-6 bg-warning-50 p-4 rounded-lg">
-                      <h4 className="text-lg font-bold text-warning-800 mb-3">※您於相關文件填寫個人資料，即視為同意個人資料提供予本會，代表：</h4>
-
-                      <div className="space-y-3 text-warning-700">
-                        <p>您已閱讀、瞭解並同意接受本同意書之規定，並同意本會於所列蒐集目的之必要範圍內，蒐集、處理及利用本人之個人資料。</p>
-
-                        <p>若您未滿十八歲，您確認已經法定代理人閱讀、瞭解並同意本同意書之所有內容，並遵守本同意書所有規範，始得填寫。</p>
-
-                        <p>若您是代填報者，您保證已向個人資料所有人說明本同意書之內容，並獲得個人資料所有人之同意，始填報相關個人資料。</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 p-4 border-t border-divider bg-content3 rounded-lg">
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={isAgreed}
-                      onChange={(e) => setIsAgreed(e.target.checked)}
-                      aria-label="同意授權條款"
-                      className="mt-1"
-                    />
-                    <span className="text-sm">
-{t('application.consentCheckbox')}
-                    </span>
-                  </label>
-                </div>
-              </CardBody>
-            </Card>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="bg-background border-t border-divider p-6">
-          <div className="flex justify-between items-center max-w-6xl mx-auto">
-            <Button variant="ghost" onClick={handleBack} className="px-6 py-3">
-              {t('application.back')}
-            </Button>
-            <Button
-              color="primary"
-              size="lg"
-              onClick={handleNext}
-              isDisabled={!isAgreed || !isComplete}
-              className="px-8 py-3 relative"
-            >
-              {!isComplete ? (
-                <span className="flex items-center gap-2">
-                  <span className="text-lg font-bold">{timeLeft}</span>
-                  <span>秒後可同意</span>
-                </span>
-              ) : (
-                t('application.agreeAndContinue')
-              )}
-              {!isComplete && (
-                <Progress
-                  value={percentage}
-                  size="sm"
-                  color="warning"
-                  aria-label={`剩餘 ${timeLeft} 秒`}
-                  className="absolute bottom-0 left-0 right-0 h-1 rounded-b-lg"
-                  classNames={{
-                    indicator: "bg-gradient-to-r from-yellow-400 to-orange-400"
-                  }}
-                />
-              )}
-            </Button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
+  // 編輯頁面不需要同意書流程，直接顯示表單
   // 第三步：基本資料表單
   if (currentStep === 'application-form') {
     return (
@@ -517,12 +468,12 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
               <div>
                 <h1 className="text-xl font-bold">{t('application.title')}</h1>
                 <p className="text-sm text-default-500">
-{t(`application.subStep${currentSubStep}`)} ({currentSubStep}/4) - {i18n.language === 'zh-TW' ? '第2步' : 'Step 2'}
+                  基本資料與證件拍照 (2/4)
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Progress value={33 + (currentSubStep / 4) * 34} size="sm" className="w-24" color="success" aria-label={`進度 ${33 + (currentSubStep / 4) * 34}%`} />
+              <Progress value={50} size="sm" className="w-24" color="success" aria-label="進度 50%" />
               <ThemeSwitcher />
               <LanguageSwitcher />
               <Button variant="ghost" onClick={() => router.push('/dashboard')}>返回</Button>
@@ -548,12 +499,12 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
               </div>
             </div>
             <div className="space-y-2">
-              <h1 className="text-lg font-bold">救災個資收集申請</h1>
+              <h1 className="text-lg font-bold">編輯申請</h1>
               <div className="flex justify-between items-center">
-                <p className="text-sm text-default-500">{t(`application.subStep${currentSubStep}`)}</p>
-                <span className="text-xs text-default-400">{currentSubStep}/4</span>
+                <p className="text-sm text-default-500">基本資料與證件拍照</p>
+                <span className="text-xs text-default-400">2/4</span>
               </div>
-              <Progress value={33 + (currentSubStep / 4) * 34} color="success" size="sm" aria-label={`進度 ${33 + (currentSubStep / 4) * 34}%`} />
+              <Progress value={50} color="success" size="sm" aria-label="進度 50%" />
             </div>
           </div>
         </div>
@@ -561,14 +512,28 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
         {/* Container */}
         <div className="flex-1 p-4 md:p-8 overflow-y-auto overflow-x-hidden">
           <div className="max-w-4xl mx-auto w-full">
-            {/* 子步驟 1: 身份證拍照與 OCR */}
-            {currentSubStep === 1 && (
-              <Card className="shadow-lg">
-                <CardHeader className="flex flex-col items-start space-y-2">
-                  <h2 className="text-lg font-bold">身份證拍照辨識</h2>
-                  <p className="text-sm text-default-500">請拍攝身份證正反面，系統將自動識別資料</p>
-                </CardHeader>
-                <CardBody className="space-y-6">
+            {/* 樺加沙編號（編輯模式 - 唯讀）*/}
+            <Card className="shadow-lg mb-6">
+              <CardHeader>
+                <h2 className="text-lg font-bold">樺加沙編號</h2>
+              </CardHeader>
+              <CardBody>
+                <div className="bg-default-100 dark:bg-default-50/10 px-4 py-3 rounded-lg border border-default-200">
+                  <span className="text-lg font-mono font-bold">{formData.village}</span>
+                </div>
+                <p className="text-xs text-default-400 mt-2">
+                  ⚠️ 編輯模式：樺加沙編號無法修改
+                </p>
+              </CardBody>
+            </Card>
+
+                {/* 身份證拍照辨識 */}
+                <Card className="shadow-lg">
+                  <CardHeader className="flex flex-col items-start space-y-2">
+                    <h2 className="text-lg font-bold">身份證拍照辨識</h2>
+                    <p className="text-sm text-default-500">請拍攝身份證正反面，系統將自動識別資料</p>
+                  </CardHeader>
+                  <CardBody className="space-y-6">
                   <div className="grid md:grid-cols-2 gap-6">
                     {/* 身份證正面 */}
                     <div className="space-y-4">
@@ -578,6 +543,10 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
                       <div className="relative">
                         <CameraCapture
                           label="身份證正面"
+                          onClear={() => {
+                            setFormData(prev => ({ ...prev, front_id_photo: null }))
+                            setFileData(prev => ({ ...prev, frontIdPhoto: null }))
+                          }}
                           onCapture={async (file) => {
                             // 流程: 圖片上傳 → EXIF 方向自動修正 → 使用者確認，儲存 → 轉換為 base64 → 加上提示詞送至 OCR API
                             // file 是經過 ImageEditor 處理後的 File 物件（已完成 EXIF 修正）
@@ -694,6 +663,10 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
                       <div className="relative">
                         <CameraCapture
                           label="身份證背面"
+                          onClear={() => {
+                            setFormData(prev => ({ ...prev, back_id_photo: null }))
+                            setFileData(prev => ({ ...prev, backIdPhoto: null }))
+                          }}
                           onCapture={async (file) => {
                             // file 現在是 File 物件，不是 URL
                             const imageUrl = URL.createObjectURL(file)
@@ -718,10 +691,19 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
 
                               if (response.ok) {
                                 const result = await response.json()
+                                console.log('OCR 身分證背面結果:', result.data)
+
                                 if (result.success && result.data) {
+                                  // 解析地址欄位（填入身分證地址）
+                                  const cityDistrict = result.data.縣市行政區 || result.data.cityDistrict || ''
+                                  const villageLi = result.data.村里 || result.data.village || ''
+                                  const address = result.data.地址 || result.data.address || ''
+
                                   setFormData(prev => ({
                                     ...prev,
-                                    address: result.data.address || prev.address
+                                    id_city_district: cityDistrict || prev.id_city_district,
+                                    id_village_li: villageLi || prev.id_village_li,
+                                    id_address: address || prev.id_address
                                   }))
                                 }
                               }
@@ -739,16 +721,44 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
                       <div className="space-y-3">
                         <div>
                           <label className="block text-sm font-medium text-foreground mb-1">
-                            戶籍地址 <span className="text-danger">*</span>
+                            縣市行政區
                           </label>
-                          <textarea
-                            value={formData.address}
-                            onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
-                            placeholder="請輸入戶籍地址"
-                            aria-label="戶籍地址"
-                            rows={3}
-                            className={`w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 resize-none ${
-                              formData.address.trim()
+                          <input
+                            type="text"
+                            value={formData.id_city_district}
+                            onChange={(e) => setFormData(prev => ({ ...prev, id_city_district: e.target.value }))}
+                            placeholder="例：花蓮縣光復鄉"
+                            aria-label="縣市行政區"
+                            className="w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 border-default-300 focus:border-primary focus:ring-primary/20"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1">
+                            村/里
+                          </label>
+                          <input
+                            type="text"
+                            value={formData.id_village_li}
+                            onChange={(e) => setFormData(prev => ({ ...prev, id_village_li: e.target.value }))}
+                            placeholder="例：大同村"
+                            aria-label="村/里"
+                            className="w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 border-default-300 focus:border-primary focus:ring-primary/20"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1">
+                            地址 <span className="text-danger">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={formData.id_address}
+                            onChange={(e) => setFormData(prev => ({ ...prev, id_address: e.target.value }))}
+                            placeholder="例：3鄰中正路123號"
+                            aria-label="地址"
+                            className={`w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 ${
+                              formData.id_address.trim()
                                 ? 'border-success focus:border-success focus:ring-success/20'
                                 : 'border-default-300 focus:border-primary focus:ring-primary/20'
                             }`}
@@ -760,7 +770,116 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
                   </div>
                 </CardBody>
               </Card>
-            )}
+
+              {/* 戶籍謄本 */}
+              <Card className="shadow-lg mt-6">
+                <CardHeader>
+                  <h2 className="text-lg font-bold">戶籍謄本</h2>
+                </CardHeader>
+                <CardBody className="space-y-6">
+                  <div className="grid md:grid-cols-2 gap-6">
+                    {/* 戶籍謄本照片 */}
+                    <div className="space-y-4">
+                      <h3 className="text-md font-semibold text-primary">上傳戶籍謄本</h3>
+                      <CameraCapture
+                        label="戶籍謄本"
+                        onClear={() => {
+                          setFormData(prev => ({ ...prev, household_doc_photo: null }))
+                          setFileData(prev => ({ ...prev, householdDoc: null }))
+                        }}
+                        onCapture={async (file) => {
+                          const imageUrl = URL.createObjectURL(file)
+                          setFormData(prev => ({ ...prev, household_doc_photo: imageUrl }))
+                          setFileData(prev => ({ ...prev, householdDoc: file }))
+
+                          // 呼叫後端 OCR API（使用與身分證背面相同的邏輯）
+                          try {
+                            setIsProcessingOCR(true)
+                            setOCRMessage('AI 正在辨識戶籍謄本，請稍候...')
+
+                            const formDataApi = new FormData()
+                            formDataApi.append('image', file)
+                            formDataApi.append('type', 'back')  // 使用 back 的 prompt（地址解析）
+
+                            const response = await fetch('/api/ocr', {
+                              method: 'POST',
+                              body: formDataApi
+                            })
+
+                            if (response.ok) {
+                              const result = await response.json()
+                              console.log('OCR 戶籍謄本結果:', result.data)
+
+                              if (result.success && result.data) {
+                                const cityDistrict = result.data.縣市行政區 || result.data.cityDistrict || ''
+                                const villageLi = result.data.村里 || result.data.village || ''
+                                const address = result.data.地址 || result.data.address || ''
+
+                                setFormData(prev => ({
+                                  ...prev,
+                                  household_city_district: cityDistrict || prev.household_city_district,
+                                  household_village_li: villageLi || prev.household_village_li,
+                                  household_address: address || prev.household_address
+                                }))
+                              }
+                            }
+                          } catch (error) {
+                            console.error('OCR failed:', error)
+                          } finally {
+                            setIsProcessingOCR(false)
+                          }
+                        }}
+                        currentImage={formData.household_doc_photo}
+                      />
+                    </div>
+
+                    {/* 戶籍謄本地址欄位 */}
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-1">
+                          縣市行政區
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.household_city_district}
+                          onChange={(e) => setFormData(prev => ({ ...prev, household_city_district: e.target.value }))}
+                          placeholder="例：花蓮縣光復鄉"
+                          aria-label="戶籍謄本縣市行政區"
+                          className="w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 border-default-300 focus:border-primary focus:ring-primary/20"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-1">
+                          村/里
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.household_village_li}
+                          onChange={(e) => setFormData(prev => ({ ...prev, household_village_li: e.target.value }))}
+                          placeholder="例：大同村"
+                          aria-label="戶籍謄本村/里"
+                          className="w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 border-default-300 focus:border-primary focus:ring-primary/20"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-1">
+                          地址
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.household_address}
+                          onChange={(e) => setFormData(prev => ({ ...prev, household_address: e.target.value }))}
+                          placeholder="例：3鄰中正路123號"
+                          aria-label="戶籍謄本地址"
+                          className="w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 border-default-300 focus:border-primary focus:ring-primary/20"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </CardBody>
+            </Card>
 
             {/* 子步驟 2: 銀行存摺拍照與資料填寫 */}
             {/* ARCHIVED: 銀行存摺資料功能已保存但不使用 */}
@@ -1080,8 +1199,8 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
               </Card>
             )}
 
-            {/* 子步驟 4: 聯絡方式選擇 */}
-            {currentSubStep === 4 && (
+            {/* 子步驟 4: 聯絡方式選擇 - 已移除 */}
+            {false && currentSubStep === 4 && (
               <Card className="shadow-lg">
                 <CardHeader className="flex flex-col items-start space-y-2">
                   <h2 className="text-lg font-bold">聯絡方式</h2>
@@ -1218,53 +1337,25 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
 
         {/* Footer */}
         <div className="bg-background border-t border-divider p-6">
-          <div className="flex justify-between items-center max-w-6xl mx-auto">
+          <div className="flex justify-end items-center max-w-6xl mx-auto">
             <Button
-              variant="ghost"
-              onClick={() => {
-                if (currentSubStep > 1) {
-                  setCurrentSubStep(currentSubStep - 1)
-                } else {
-                  handleBack()
-                }
-              }}
-              className="px-4 md:px-6 py-2 md:py-3"
-            >
-{currentSubStep > 1 ? t('application.back') : t('application.backToConsent')}
-            </Button>
-
-            <Button
-              color={currentSubStep === 4 ? 'success' : 'primary'}
+              color="primary"
               size="lg"
-              onClick={() => {
-                if (currentSubStep < 4) {
-                  // 跳過子步驟2（銀行存摺資料已archive）
-                  const nextStep = currentSubStep === 1 ? 3 : currentSubStep + 1
-                  setCurrentSubStep(nextStep)
-                } else {
-                  // 進入步驟三：附加檔案上傳
-                  setCurrentStep('document-upload')
-                }
-              }}
+              onClick={() => setCurrentStep('document-upload')}
               isLoading={isSubmitting}
               isDisabled={
                 isSubmitting ||
-                (currentSubStep === 1 && !(
-                  formData.victim_name.trim() &&
-                  /^[A-Z][0-9]{9}$/.test(formData.id_number) &&
-                  formData.address.trim()
-                )) ||
-                // 子步驟3（簽名）現在是選填的，無需驗證
-                (currentSubStep === 4 && (
-                  !formData.contactOption ||
-                  (formData.contactOption === 'provide' && !formData.phone_number.trim())
-                ))
+                !formData.village.match(/^(大安|大華|大同|其他)\d{3}$/) ||
+                !formData.victim_name.trim() ||
+                !/^[A-Z][0-9]{9}$/.test(formData.id_number) ||
+                !formData.id_address.trim()
               }
               className="px-6 md:px-8 py-2 md:py-3"
             >
-              {isSubmitting ? t('application.submitting') : (currentSubStep === 4 ? '進入附加檔案上傳' : t('application.nextStep'))}
+              下一步
             </Button>
           </div>
+
         </div>
 
         {/* OCR Processing Modal */}
@@ -1426,19 +1517,11 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
   // 第三步：其他文件上傳
   if (currentStep === 'document-upload') {
 
-    const documentTypes = [
-      { value: '租賃契約', label: '租賃契約' },
-      { value: '戶籍謄本', label: '戶籍謄本' },
-      { value: '房屋所有權狀', label: '房屋所有權狀' },
-      { value: '其他', label: '其他' }
-    ]
-
     // 新增空白上傳區塊
     const handleAddDocument = () => {
       const newDoc = {
         id: Date.now().toString(),
-        type: '租賃契約',  // 預設選擇租賃契約
-        customType: '',
+        customName: '',  // 使用者自訂名稱
         file: null,
         preview: null
       }
@@ -1464,15 +1547,9 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
       setUploadedDocuments(prev => prev.filter(doc => doc.id !== id))
     }
 
-    const handleDocumentTypeChange = (id: string, newType: string) => {
+    const handleCustomNameChange = (id: string, customName: string) => {
       setUploadedDocuments(prev =>
-        prev.map(doc => doc.id === id ? { ...doc, type: newType, customType: '' } : doc)
-      )
-    }
-
-    const handleCustomTypeChange = (id: string, customType: string) => {
-      setUploadedDocuments(prev =>
-        prev.map(doc => doc.id === id ? { ...doc, customType } : doc)
+        prev.map(doc => doc.id === id ? { ...doc, customName } : doc)
       )
     }
 
@@ -1484,12 +1561,12 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
             <div className="flex items-center gap-4">
               <Logo width={40} height={40} />
               <div>
-                <h1 className="text-xl font-bold">救災個資收集申請</h1>
-                <p className="text-sm text-default-500">其他文件上傳 (3/3)</p>
+                <h1 className="text-xl font-bold">編輯申請</h1>
+                <p className="text-sm text-default-500">其他文件上傳 (3/4)</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Progress value={100} size="sm" className="w-24" aria-label="進度 100%" />
+              <Progress value={75} size="sm" className="w-24" aria-label="進度 75%" />
               <ThemeSwitcher />
               <LanguageSwitcher />
               <Button variant="ghost" onClick={() => router.push('/dashboard')}>返回</Button>
@@ -1515,12 +1592,12 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
               </div>
             </div>
             <div className="space-y-2">
-              <h1 className="text-lg font-bold">救災個資收集申請</h1>
+              <h1 className="text-lg font-bold">編輯申請</h1>
               <div className="flex justify-between items-center">
                 <p className="text-sm text-default-500">其他文件上傳</p>
-                <span className="text-xs text-default-400">3/3</span>
+                <span className="text-xs text-default-400">3/4</span>
               </div>
-              <Progress value={100} color="primary" size="sm" aria-label="進度 100%" />
+              <Progress value={75} color="primary" size="sm" aria-label="進度 75%" />
             </div>
           </div>
         </div>
@@ -1555,42 +1632,23 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
                       </Button>
 
                       <div className="space-y-4">
-                        {/* 文件類型選擇 */}
+                        {/* 文件名稱輸入 */}
                         <div>
-                          <label className="text-sm font-medium mb-2 block">文件類型</label>
-                          <select
-                            value={doc.type}
-                            onChange={(e) => handleDocumentTypeChange(doc.id, e.target.value)}
+                          <label className="text-sm font-medium mb-2 block">文件名稱 <span className="text-danger">*</span></label>
+                          <input
+                            type="text"
+                            value={doc.customName}
+                            onChange={(e) => handleCustomNameChange(doc.id, e.target.value)}
+                            placeholder="例如：租賃契約、房屋所有權狀"
                             className="w-full p-2 border rounded-lg dark:bg-gray-800 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
-                            aria-label="文件類型"
-                          >
-                            {documentTypes.map(type => (
-                              <option key={type.value} value={type.value}>
-                                {type.label}
-                              </option>
-                            ))}
-                          </select>
-
-                          {/* 當選擇「其他」時顯示自訂輸入框 */}
-                          {doc.type === '其他' && (
-                            <input
-                              type="text"
-                              value={doc.customType || ''}
-                              onChange={(e) => handleCustomTypeChange(doc.id, e.target.value)}
-                              placeholder="請輸入文件名稱"
-                              className="w-full p-2 mt-2 border rounded-lg dark:bg-gray-800 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
-                            />
-                          )}
+                            aria-label="文件名稱"
+                          />
                         </div>
 
                         {/* 檔案上傳/拍照區域 */}
-                        {!doc.file ? (
+                        {!doc.file && !doc.preview ? (
                           <CameraCapture
-                            label={
-                              doc.type === '其他' && doc.customType
-                                ? doc.customType
-                                : doc.type
-                            }
+                            label={doc.customName || '文件'}
                             onCapture={(file) => handleFileCapture(doc.id, file)}
                             currentImage={null}
                           />
@@ -1664,16 +1722,244 @@ export default function NewApplicationPage({ params }: { params: Promise<{ villa
               上一步
             </Button>
             <Button
+              color="primary"
+              size="lg"
+              onClick={() => setCurrentStep('data-confirmation')}
+              className="px-8 py-3"
+            >
+              下一步
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // 第四步：資料確認
+  if (currentStep === 'data-confirmation') {
+    return (
+      <div className="min-h-screen flex flex-col overflow-x-hidden">
+        {/* Header */}
+        <div className="bg-background border-b border-divider p-3 md:p-4 w-full">
+          <div className="hidden md:flex justify-between items-center max-w-6xl mx-auto">
+            <div className="flex items-center gap-4">
+              <Logo width={40} height={40} />
+              <div>
+                <h1 className="text-xl font-bold">編輯申請</h1>
+                <p className="text-sm text-default-500">資料確認 (4/4)</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Progress value={100} size="sm" className="w-24" color="success" aria-label="進度 100%" />
+              <ThemeSwitcher />
+              <LanguageSwitcher />
+            </div>
+          </div>
+
+          <div className="md:hidden space-y-3">
+            <div className="flex justify-between items-center">
+              <Logo width={32} height={32} />
+              <MobileMenu showLogout={true} />
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-lg font-bold">編輯申請</h1>
+              <div className="flex justify-between items-center">
+                <p className="text-sm text-default-500">資料確認</p>
+                <span className="text-xs text-default-400">4/4</span>
+              </div>
+              <Progress value={100} color="success" size="sm" aria-label="進度 100%" />
+            </div>
+          </div>
+        </div>
+
+        {/* 資料確認內容 */}
+        <div className="flex-1 p-4 md:p-8 overflow-y-auto overflow-x-hidden">
+          <div className="max-w-4xl mx-auto w-full space-y-6">
+            <Card>
+              <CardHeader>
+                <h2 className="text-xl font-bold">請確認您填寫的資料</h2>
+              </CardHeader>
+              <CardBody className="space-y-6">
+                {/* 樺加沙編號 */}
+                <div className="bg-content2 rounded-lg p-4">
+                  <h3 className="text-md font-semibold text-primary mb-3">樺加沙編號</h3>
+                  <p className="text-lg font-mono">{formData.village}</p>
+                </div>
+
+                {/* 基本資料 */}
+                <div className="bg-content2 rounded-lg p-4">
+                  <h3 className="text-md font-semibold text-primary mb-3">基本資料</h3>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-sm text-default-500">姓名：</span>
+                      <span className="ml-2 font-medium">{formData.victim_name}</span>
+                    </div>
+                    <div>
+                      <span className="text-sm text-default-500">身分證字號：</span>
+                      <span className="ml-2 font-mono">{formData.id_number}</span>
+                    </div>
+                    <div>
+                      <span className="text-sm text-default-500">性別：</span>
+                      <span className="ml-2">{getGender(formData.id_number)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 身分證地址 */}
+                <div className="bg-content2 rounded-lg p-4">
+                  <h3 className="text-md font-semibold text-primary mb-3">戶籍地址（身分證）</h3>
+                  <div className="space-y-2">
+                    <div>
+                      <span className="text-sm text-default-500">縣市行政區：</span>
+                      <span className="ml-2">{formData.id_city_district || '-'}</span>
+                    </div>
+                    <div>
+                      <span className="text-sm text-default-500">村/里：</span>
+                      <span className="ml-2">{formData.id_village_li || '-'}</span>
+                    </div>
+                    <div>
+                      <span className="text-sm text-default-500">地址：</span>
+                      <span className="ml-2">{formData.id_address}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 戶籍謄本地址 */}
+                {(formData.household_city_district || formData.household_village_li || formData.household_address) && (
+                  <div className="bg-content2 rounded-lg p-4">
+                    <h3 className="text-md font-semibold text-primary mb-3">戶籍地址（戶籍謄本）</h3>
+                    <div className="space-y-2">
+                      <div>
+                        <span className="text-sm text-default-500">縣市行政區：</span>
+                        <span className="ml-2">{formData.household_city_district || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="text-sm text-default-500">村/里：</span>
+                        <span className="ml-2">{formData.household_village_li || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="text-sm text-default-500">地址：</span>
+                        <span className="ml-2">{formData.household_address || '-'}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 已上傳照片 */}
+                {(formData.front_id_photo || formData.back_id_photo || formData.household_doc_photo || formData.signature) && (
+                  <div className="bg-content2 rounded-lg p-4">
+                    <h3 className="text-md font-semibold text-primary mb-3">已上傳照片</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {formData.front_id_photo && (
+                        <div className="text-center">
+                          <img src={formData.front_id_photo} alt="身分證正面" className="w-full aspect-video object-contain bg-content1 mb-1" />
+                          <p className="text-xs">身分證正面</p>
+                        </div>
+                      )}
+                      {formData.back_id_photo && (
+                        <div className="text-center">
+                          <img src={formData.back_id_photo} alt="身分證背面" className="w-full aspect-video object-contain bg-content1 mb-1" />
+                          <p className="text-xs">身分證背面</p>
+                        </div>
+                      )}
+                      {formData.household_doc_photo && (
+                        <div className="text-center">
+                          <img src={formData.household_doc_photo} alt="戶籍謄本" className="w-full aspect-video object-contain bg-content1 mb-1" />
+                          <p className="text-xs">戶籍謄本</p>
+                        </div>
+                      )}
+                      {formData.signature && (
+                        <div className="text-center">
+                          <img src={formData.signature} alt="簽名" className="w-full aspect-video object-contain bg-content1 mb-1" />
+                          <p className="text-xs">電子簽名</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 附加文件 */}
+                {uploadedDocuments.filter(doc => doc.file || doc.preview).length > 0 && (
+                  <div className="bg-content2 rounded-lg p-4">
+                    <h3 className="text-md font-semibold text-primary mb-3">附加文件</h3>
+                    <div className="space-y-2">
+                      {uploadedDocuments.filter(doc => doc.file || doc.preview).map((doc, index) => (
+                        <div key={index} className="flex items-center gap-2">
+                          <span className="text-sm">• {doc.customName}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 申請人簽名 */}
+                <div className="bg-content2 rounded-lg p-4">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-md font-semibold text-primary">申請人簽名（選填）</h3>
+                    <span className="text-sm text-default-500">非必填項目</span>
+                  </div>
+                  {formData.signature ? (
+                    <div className="flex flex-col items-center gap-3">
+                      <img
+                        src={formData.signature}
+                        alt="申請人簽名"
+                        className="w-full max-w-md aspect-video object-contain bg-white dark:bg-gray-800 border rounded"
+                      />
+                      {/* 從 Ragic 載入的簽名（URL 包含 ragic.com）不可刪除 */}
+                      {!formData.signature.includes('ragic.com') && (
+                        <Button
+                          size="sm"
+                          variant="bordered"
+                          color="primary"
+                          onClick={() => {
+                            setFormData(prev => ({ ...prev, signature: null }))
+                            setFileData(prev => ({ ...prev, signature: null }))
+                          }}
+                        >
+                          清除簽名
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <SignatureCanvas
+                      onSave={(signatureFile) => {
+                        setFileData(prev => ({ ...prev, signature: signatureFile }))
+                        const imageUrl = URL.createObjectURL(signatureFile)
+                        setFormData(prev => ({ ...prev, signature: imageUrl }))
+                      }}
+                      label="電子簽名"
+                      currentSignature={formData.signature}
+                    />
+                  )}
+                  <p className="text-xs text-default-500 mt-2">
+                    * 長者或行動不便者可選擇不簽名
+                  </p>
+                </div>
+              </CardBody>
+            </Card>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="bg-background border-t border-divider p-6">
+          <div className="flex justify-between items-center max-w-6xl mx-auto">
+            <Button
+              variant="ghost"
+              onClick={() => setCurrentStep('document-upload')}
+              className="px-6 py-3"
+            >
+              上一步
+            </Button>
+            <Button
               color="success"
               size="lg"
               onClick={async () => {
-                // 直接呼叫 handleFinalSubmit，附件會在裡面一起處理
                 await handleFinalSubmit()
               }}
               isLoading={isSubmitting}
               className="px-8 py-3"
             >
-              {isSubmitting ? '提交中...' : '完成申請'}
+              {isSubmitting ? '提交中...' : '確認並提交'}
             </Button>
           </div>
         </div>

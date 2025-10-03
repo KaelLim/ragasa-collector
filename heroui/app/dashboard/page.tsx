@@ -19,7 +19,6 @@ export default function DashboardPage() {
   const { t, i18n } = useTranslation()
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [isVillageModalOpen, setIsVillageModalOpen] = useState(false)
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false)
   const [downloadFormat, setDownloadFormat] = useState('xlsx')
   const [password, setPassword] = useState('')
@@ -192,7 +191,8 @@ export default function DashboardPage() {
           <Card
             className="hover:shadow-2xl hover:scale-105 transition-all duration-300 cursor-pointer group border-2 hover:border-primary"
             isPressable
-            onPress={() => setIsVillageModalOpen(true)}
+            as={Link}
+            href="/application/new"
           >
             <CardBody className="p-8 text-center space-y-6">
               <div className="flex justify-center">
@@ -334,47 +334,6 @@ export default function DashboardPage() {
           </ModalContent>
         </Modal>
 
-        {/* 村別選擇 Modal */}
-        <Modal
-          isOpen={isVillageModalOpen}
-          onClose={() => setIsVillageModalOpen(false)}
-          size="2xl"
-          placement="center"
-        >
-          <ModalContent>
-            <ModalHeader className="flex flex-col gap-1">
-              <h2 className="text-2xl font-bold">請選擇村別</h2>
-              <p className="text-sm text-default-500 font-normal">請選擇您要為哪個村進行申請</p>
-            </ModalHeader>
-            <ModalBody className="py-6">
-              <div className="grid grid-cols-1 gap-4">
-                {['大安', '大華', '大同'].map((village) => (
-                  <Button
-                    key={village}
-                    size="lg"
-                    color="primary"
-                    variant="shadow"
-                    className="h-16 text-xl font-bold justify-center"
-                    onClick={() => {
-                      setIsVillageModalOpen(false)
-                      router.push(`/application/new/${encodeURIComponent(village)}`)
-                    }}
-                  >
-                    {village}
-                  </Button>
-                ))}
-              </div>
-            </ModalBody>
-            <ModalFooter>
-              <Button
-                variant="light"
-                onPress={() => setIsVillageModalOpen(false)}
-              >
-                取消
-              </Button>
-            </ModalFooter>
-          </ModalContent>
-        </Modal>
       </div>
     </div>
   )

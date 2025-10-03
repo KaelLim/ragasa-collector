@@ -89,7 +89,7 @@ export default function BulkRegisterPage() {
     setProgress(0)
 
     try {
-      const response = await fetch('/api/bulk-register.php', {
+      const response = await fetch('/api/bulk-register/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -98,6 +98,12 @@ export default function BulkRegisterPage() {
           users: csvData
         })
       })
+
+      if (!response.ok) {
+        const text = await response.text()
+        console.error('API 錯誤回應:', text)
+        throw new Error(`API 回應錯誤: ${response.status}`)
+      }
 
       const result: BulkResponse = await response.json()
 
