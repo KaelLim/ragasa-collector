@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
+    "dev:8793": "next dev --turbopack -p 8793",
     "build": "next build",
     "start": "next start",
+    "start:8793": "next start -p 8793",
     "lint": "eslint --fix"
   },
   "dependencies": {

@@ -61,7 +61,7 @@ RAGIC_BASE_URL=https://ap11.ragic.com/TCTCharity/4-20252
 
 # Node 環境
 NODE_ENV=production
-PORT=3000
+PORT=8793
 ```
 
 儲存並退出（Ctrl+X → Y → Enter）
@@ -96,77 +96,20 @@ pm2 startup
 pm2 save
 ```
 
-### 6. 設定 Apache 反向代理（Port 8793 → Port 3000）
+### 6. 測試部署
 
 ```bash
-# 啟用必要的 Apache 模組
-sudo a2enmod proxy
-sudo a2enmod proxy_http
-sudo a2enmod proxy_wstunnel
-sudo a2enmod headers
-sudo a2enmod rewrite
-
-# 建立 Apache 虛擬主機設定
-sudo nano /etc/apache2/sites-available/ragasa-collector.conf
-```
-
-貼上以下設定：
-
-```apache
-<VirtualHost *:8793>
-    ServerName your-domain.com
-    # ServerAlias www.your-domain.com
-
-    # 反向代理到 Next.js (port 3000)
-    ProxyPreserveHost On
-    ProxyPass / http://localhost:3000/
-    ProxyPassReverse / http://localhost:3000/
-
-    # WebSocket 支援（用於 Hot Reload）
-    RewriteEngine on
-    RewriteCond %{HTTP:Upgrade} websocket [NC]
-    RewriteCond %{HTTP:Connection} upgrade [NC]
-    RewriteRule ^/?(.*) "ws://localhost:3000/$1" [P,L]
-
-    # 安全標頭
-    Header always set X-Frame-Options "SAMEORIGIN"
-    Header always set X-Content-Type-Options "nosniff"
-    Header always set X-XSS-Protection "1; mode=block"
-
-    # 日誌
-    ErrorLog ${APACHE_LOG_DIR}/ragasa-collector-error.log
-    CustomLog ${APACHE_LOG_DIR}/ragasa-collector-access.log combined
-</VirtualHost>
-```
-
-### 7. 啟用網站並重啟 Apache
-
-```bash
-# 啟用網站
-sudo a2ensite ragasa-collector
-
-# 測試設定
-sudo apache2ctl configtest
-
-# 重啟 Apache
-sudo systemctl restart apache2
-
-# 檢查 Apache 狀態
-sudo systemctl status apache2
-```
-
-### 8. 測試部署
-
-```bash
-# 測試 Next.js 是否運行（本機）
-curl http://localhost:3000
-
-# 測試 Apache 反向代理（本機）
+# 測試 Next.js 是否在 port 8793 運行
 curl http://localhost:8793
 
 # 從外部測試
 curl http://your-server-ip:8793
 ```
+
+**說明**：
+- ✅ Next.js 直接監聽 port 8793（透過 `.env.production` 的 `PORT=8793`）
+- ✅ **不需要 Apache 反向代理**（因為 Next.js 已經在正確的 port）
+- ✅ 如果你的伺服器已經有 Apache 在使用其他服務，Next.js 會直接監聽 8793，互不干擾
 
 ---
 
@@ -430,7 +373,7 @@ NEXT_PUBLIC_XINFERENCE_MODEL_ID=qwen2.5-vl-instruct
 RAGIC_API_KEY=cWl5VlRWQjJ4ZGJScllaVG5PMFNYM3FGc1VsM2hTVU9jbVFBZ0tGWFVSMFFZOVFqcUdVT25GUEZtd3JDUzA1eFN4RjNPdDJQZTdNPQ==
 RAGIC_BASE_URL=https://ap11.ragic.com/TCTCharity/4-20252
 NODE_ENV=production
-PORT=3000
+PORT=8793
 EOF
 
 # 4. 安裝相依套件
