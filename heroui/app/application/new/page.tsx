@@ -332,7 +332,7 @@ export default function NewApplicationPage() {
       formData.victim_name.trim() &&
       /^[A-Z][0-9]{9}$/.test(formData.id_number) &&
       /^[0-9\-]{8,12}$/.test(formData.phone_number) &&
-      formData.address.trim() &&
+      formData.id_address.trim() &&
       formData.bank_code &&
       formData.bank_account &&
       /^[0-9]{5,20}$/.test(formData.bank_account)
@@ -1237,7 +1237,7 @@ export default function NewApplicationPage() {
                         </div>
                         <div>
                           <span className="text-sm text-default-500">戶籍地址：</span>
-                          <p className="text-sm font-medium mt-1">{formData.address || '未填寫'}</p>
+                          <p className="text-sm font-medium mt-1">{formData.id_address || '未填寫'}</p>
                         </div>
                       </div>
                     </div>

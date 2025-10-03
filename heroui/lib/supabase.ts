@@ -38,7 +38,7 @@ export interface DisasterApplication {
   front_id_photo?: string
   back_id_photo?: string
   bank_photo?: string
-  signature?: string
+  signature?: string | null
   addons_docs?: Array<{
     id: string
     type: string
@@ -49,6 +49,12 @@ export interface DisasterApplication {
   status: 'submitted' | 'reviewed' | 'approved' | 'rejected'
   created_at: string
   updated_at: string
+  // Ragic 特有欄位（用於 detail 頁面）
+  village?: string
+  cityDistrict?: string
+  villageLi?: string
+  householdDoc?: string
+  otherDocs?: string | string[]  // 單一檔案時為字串，多個檔案時為陣列
 }
 
 export interface VillageApplication {

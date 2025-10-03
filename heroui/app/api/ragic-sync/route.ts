@@ -39,20 +39,26 @@ export async function POST(request: NextRequest) {
     if (data.household_village_li) ragicFormData.append('1028876', data.household_village_li)
     if (data.household_address) ragicFormData.append('1028877', data.household_address)
 
-    // 5. 圖片檔案
+    // 5. 圖片檔案（確保是 Blob 類型）
     const frontIdPhoto = formData.get('front_id_photo')
-    if (frontIdPhoto) ragicFormData.append('1028852', frontIdPhoto, 'front_id.jpg')
+    if (frontIdPhoto && frontIdPhoto instanceof Blob) {
+      ragicFormData.append('1028852', frontIdPhoto, 'front_id.jpg')
+    }
 
     const backIdPhoto = formData.get('back_id_photo')
-    if (backIdPhoto) ragicFormData.append('1028853', backIdPhoto, 'back_id.jpg')
+    if (backIdPhoto && backIdPhoto instanceof Blob) {
+      ragicFormData.append('1028853', backIdPhoto, 'back_id.jpg')
+    }
 
     const householdDoc = formData.get('household_doc_photo')
-    if (householdDoc) ragicFormData.append('1028854', householdDoc, 'household.jpg')
+    if (householdDoc && householdDoc instanceof Blob) {
+      ragicFormData.append('1028854', householdDoc, 'household.jpg')
+    }
 
     // 6. 其他佐證資料（包含簽名和附加文件）
     // 簽名
     const signature = formData.get('signature')
-    if (signature) {
+    if (signature && signature instanceof Blob) {
       ragicFormData.append('1028855', signature, 'signature.png')
     }
 
@@ -63,8 +69,10 @@ export async function POST(request: NextRequest) {
       const name = formData.get(`addons_docs_${index}_name`)
       if (!file || !name) break
 
-      const filename = `${name}.jpg`
-      ragicFormData.append('1028855', file, filename)
+      if (file instanceof Blob && typeof name === 'string') {
+        const filename = `${name}.jpg`
+        ragicFormData.append('1028855', file, filename)
+      }
       index++
     }
 
