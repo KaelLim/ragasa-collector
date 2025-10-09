@@ -1,0 +1,48 @@
+{
+  "name": "OCR 系統配置",
+  "version": "1.0",
+  "description": "戶口名簿 OCR 辨識系統的全域配置",
+
+  "layoutAnalysis": {
+    "enabled": false,
+    "description": "是否啟用 Vision LLM 動態佈局分析",
+    "mode": "standard",
+    "compression": {
+      "enabled": true,
+      "maxWidth": 800,
+      "quality": 0.7,
+      "description": "佈局分析前壓縮圖片以加速處理"
+    },
+    "options": {
+      "standard": "使用標準配置檔案 (config/household-layout.json)",
+      "dynamic": "每次上傳都進行 Vision LLM 分析",
+      "preview": "分析後顯示預覽供使用者調整"
+    },
+    "notes": [
+      "standard 模式：快速、穩定、無額外成本",
+      "dynamic 模式：自適應不同格式，壓縮後約 10-15 秒 + API 費用",
+      "preview 模式：dynamic + 使用者可調整邊界，最靈活",
+      "壓縮功能：將 1500KB 圖片壓縮至 ~100KB，顯著加速分析"
+    ]
+  },
+
+  "segmentation": {
+    "quality": 0.9,
+    "description": "切割圖片的 JPEG 品質 (0.1-1.0)",
+    "notes": "較高品質提升 OCR 準確度但增加檔案大小"
+  },
+
+  "ocr": {
+    "maxRetries": 3,
+    "description": "OCR 失敗時的最大重試次數",
+    "timeout": 120000,
+    "timeoutDescription": "OCR 請求超時時間（毫秒）"
+  },
+
+  "standardLayout": {
+    "source": "config/household-layout.json",
+    "description": "標準切割配置來源",
+    "lastVerified": "2025-10-09",
+    "verificationNotes": "經過實際戶口名簿測試驗證"
+  }
+}

@@ -112,18 +112,9 @@ export default function ImageEditor({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // 設定畫布大小
-    const maxWidth = 600
-    const maxHeight = 400
-    let width = originalImage.width
-    let height = originalImage.height
-
-    // 保持長寬比縮放
-    if (width > maxWidth || height > maxHeight) {
-      const ratio = Math.min(maxWidth / width, maxHeight / height)
-      width *= ratio
-      height *= ratio
-    }
+    // 使用原始圖片尺寸（不縮小，保持最高品質）
+    const width = originalImage.width
+    const height = originalImage.height
 
     canvas.width = width
     canvas.height = height
@@ -233,13 +224,13 @@ export default function ImageEditor({
     // 恢復狀態
     ctx.restore()
 
-    // 將修正後的圖片設為原始圖片
+    // 將修正後的圖片設為原始圖片（使用最高品質）
     const correctedImg = new Image()
     correctedImg.onload = () => {
       setOriginalImage(correctedImg)
       updateCanvas()
     }
-    correctedImg.src = canvas.toDataURL('image/jpeg', 0.95)
+    correctedImg.src = canvas.toDataURL('image/jpeg', 1.0)
   }, [updateCanvas])
 
   // 當參數改變時更新畫布
@@ -274,7 +265,7 @@ export default function ImageEditor({
           onClose()
           resetSettings()
         }
-      }, 'image/jpeg', 0.9)
+      }, 'image/jpeg', 1.0)
     } finally {
       setIsProcessing(false)
     }

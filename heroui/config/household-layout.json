@@ -1,0 +1,70 @@
+{
+  "name": "台灣戶口名簿標準佈局",
+  "version": "3.0",
+  "description": "戶口名簿標準切割比例配置（固定數值，人工驗證）",
+  "lastUpdated": "2025-10-09",
+  "regions": [
+    {
+      "type": "header",
+      "index": 0,
+      "yStart": 0,
+      "yEnd": 0.21,
+      "description": "表頭區域（戶號、地址等）"
+    },
+    {
+      "type": "household-head",
+      "index": 1,
+      "yStart": 0.21,
+      "yEnd": 0.34,
+      "description": "戶長資料"
+    },
+    {
+      "type": "member",
+      "index": 2,
+      "yStart": 0.34,
+      "yEnd": 0.445,
+      "description": "成員1資料"
+    },
+    {
+      "type": "member",
+      "index": 3,
+      "yStart": 0.445,
+      "yEnd": 0.55,
+      "description": "成員2資料"
+    },
+    {
+      "type": "member",
+      "index": 4,
+      "yStart": 0.55,
+      "yEnd": 0.655,
+      "description": "成員3資料"
+    },
+    {
+      "type": "member",
+      "index": 5,
+      "yStart": 0.655,
+      "yEnd": 0.76,
+      "description": "成員4資料"
+    },
+    {
+      "type": "footer",
+      "index": 6,
+      "yStart": 0.76,
+      "yEnd": 1,
+      "description": "頁腳資訊"
+    }
+  ],
+  "totalRows": 7,
+  "hasTableBorders": true,
+  "notes": [
+    "v3.0 重大改變：放棄 Vision LLM 動態分析，使用固定數值",
+    "表頭區域佔 21%（0-0.21）",
+    "戶長資料佔 13%（0.21-0.34）",
+    "成員1 佔 10.5%（0.34-0.445）",
+    "成員2 佔 10.5%（0.445-0.55）",
+    "成員3 佔 10.5%（0.55-0.655）",
+    "成員4 佔 10.5%（0.655-0.76）",
+    "頁腳資訊佔 24%（0.76-1.0）",
+    "總計：21% + 13% + (10.5% × 4) + 24% = 100%"
+  ]
+}

@@ -1,0 +1,179 @@
+/**
+ * PDF 頁面分割工具
+ *
+ * 功能：
+ * 1. 將 PDF 轉換為圖片
+ * 2. 將每頁圖片水平切成 6 個片段（戶長 + 5 位成員）
+ * 3. 支援多頁逐一處理
+ */
+
+import * as pdfjsLib from 'pdfjs-dist'
+
+// 設定 PDF.js worker（使用本地檔案）
+if (typeof window !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+}
+
+export interface PDFSegment {
+  pageNumber: number      // 頁碼（從 1 開始）
+  segmentIndex: number    // 片段索引（1-6，1=戶長，2-6=成員）
+  blob: Blob              // 圖片 Blob
+  dataUrl: string         // 預覽用 Data URL
+  width: number           // 寬度
+  height: number          // 高度
+}
+
+export interface PDFPageInfo {
+  pageNumber: number
+  totalPages: number
+  segments: PDFSegment[]
+}
+
+/**
+ * 將 PDF 頁面轉換為 Canvas
+ */
+async function renderPDFPageToCanvas(
+  page: pdfjsLib.PDFPageProxy,
+  scale: number = 2.0
+): Promise<HTMLCanvasElement> {
+  const viewport = page.getViewport({ scale })
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
+
+  if (!context) {
+    throw new Error('無法取得 Canvas 2D 上下文')
+  }
+
+  canvas.width = viewport.width
+  canvas.height = viewport.height
+
+  const renderContext = {
+    canvasContext: context,
+    viewport,
+  }
+
+  await page.render(renderContext).promise
+  return canvas
+}
+
+/**
+ * 將 Canvas 水平切割成 6 個片段（戶長 + 5 位成員）
+ */
+function segmentCanvas(
+  canvas: HTMLCanvasElement,
+  pageNumber: number
+): PDFSegment[] {
+  const segments: PDFSegment[] = []
+  const totalSegments = 6  // 戶長(1) + 5位成員(5) = 6段
+  const segmentHeight = Math.floor(canvas.height / totalSegments)
+
+  for (let i = 0; i < totalSegments; i++) {
+    // 建立新 Canvas 用於存放片段
+    const segmentCanvas = document.createElement('canvas')
+    const segmentContext = segmentCanvas.getContext('2d')
+
+    if (!segmentContext) {
+      console.error(`無法建立片段 ${i + 1} 的 Canvas 上下文`)
+      continue
+    }
+
+    // 設定片段尺寸
+    segmentCanvas.width = canvas.width
+    segmentCanvas.height = segmentHeight
+
+    // 繪製片段（從原始 Canvas 截取）
+    segmentContext.drawImage(
+      canvas,
+      0,                    // 源 X 座標
+      i * segmentHeight,    // 源 Y 座標
+      canvas.width,         // 源寬度
+      segmentHeight,        // 源高度
+      0,                    // 目標 X 座標
+      0,                    // 目標 Y 座標
+      canvas.width,         // 目標寬度
+      segmentHeight         // 目標高度
+    )
+
+    // 轉換為 Blob 和 Data URL
+    const dataUrl = segmentCanvas.toDataURL('image/jpeg', 0.92)
+
+    segmentCanvas.toBlob(
+      (blob) => {
+        if (blob) {
+          segments.push({
+            pageNumber,
+            segmentIndex: i + 1,
+            blob,
+            dataUrl,
+            width: segmentCanvas.width,
+            height: segmentCanvas.height,
+          })
+        }
+      },
+      'image/jpeg',
+      0.92
+    )
+  }
+
+  return segments
+}
+
+/**
+ * 處理單一 PDF 頁面，返回 6 個片段
+ */
+export async function processPDFPage(
+  file: File,
+  pageNumber: number = 1
+): Promise<PDFPageInfo> {
+  try {
+    // 讀取 PDF 檔案
+    const arrayBuffer = await file.arrayBuffer()
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer })
+    const pdf = await loadingTask.promise
+
+    // 確認頁碼有效
+    if (pageNumber < 1 || pageNumber > pdf.numPages) {
+      throw new Error(`頁碼 ${pageNumber} 超出範圍（共 ${pdf.numPages} 頁）`)
+    }
+
+    // 取得指定頁面
+    const page = await pdf.getPage(pageNumber)
+
+    // 渲染為 Canvas
+    const canvas = await renderPDFPageToCanvas(page)
+
+    // 切割成 6 個片段（戶長 + 5 位成員）
+    const segments = segmentCanvas(canvas, pageNumber)
+
+    return {
+      pageNumber,
+      totalPages: pdf.numPages,
+      segments,
+    }
+  } catch (error) {
+    console.error('PDF 頁面處理失敗:', error)
+    throw error
+  }
+}
+
+/**
+ * 取得 PDF 總頁數（不進行分割）
+ */
+export async function getPDFPageCount(file: File): Promise<number> {
+  try {
+    const arrayBuffer = await file.arrayBuffer()
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer })
+    const pdf = await loadingTask.promise
+    return pdf.numPages
+  } catch (error) {
+    console.error('讀取 PDF 頁數失敗:', error)
+    throw error
+  }
+}
+
+/**
+ * 驗證檔案是否為 PDF
+ */
+export function isPDFFile(file: File): boolean {
+  return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+}

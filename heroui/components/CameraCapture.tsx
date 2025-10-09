@@ -80,7 +80,7 @@ export default function CameraCapture({
     // 繪製 video 畫面到 canvas
     context.drawImage(video, 0, 0, canvas.width, canvas.height)
 
-    // 轉換為 blob
+    // 轉換為 blob（使用最高品質）
     canvas.toBlob((blob) => {
       if (blob) {
         const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' })
@@ -93,7 +93,7 @@ export default function CameraCapture({
         setIsOpen(false)
         setIsEditorOpen(true)
       }
-    }, 'image/jpeg', 0.8)
+    }, 'image/jpeg', 1.0)
   }, [stopCamera])
 
   const handleOpenCamera = () => {
