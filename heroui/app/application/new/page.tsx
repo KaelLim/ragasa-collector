@@ -18,10 +18,11 @@ import CameraCapture from '@/components/CameraCapture'
 import SignatureCanvas from '@/components/SignatureCanvas'
 import BankSelector from '@/components/BankSelector'
 import HouseholdRegistration from '@/components/HouseholdRegistration'
+import ContactPhoneInput from '@/components/ContactPhoneInput'
 import { supabase, type BankCode } from '@/lib/supabase'
 import { useCountdown } from '@/hooks/useCountdown'
 import { useHouseholdUpload, type HouseholdDocument } from '@/hooks/useHouseholdUpload'
-import { generateApplicationUuid } from '@/lib/storage-helpers'
+import { generateApplicationUuid, moveToApplications } from '@/lib/storage-helpers'
 
 // 動態載入 HouseholdOCRIntegration（僅客戶端）
 const HouseholdOCRIntegration = dynamic(
@@ -247,7 +248,100 @@ export default function NewApplicationPage() {
       const signatureUrl = localStorage.getItem(`${sessionUuid}_signature_url`)
       if (signatureUrl) mediaUrls.signature = signatureUrl
 
-      // 收集附加檔案（從 localStorage）
+      // 2.5 先搬移所有檔案到正式區（applications/sessionUuid/）
+      console.log('📦 提交前先搬移檔案到正式區...')
+
+      // 收集所有 temp/ 路徑
+      const allTempPaths: string[] = []
+
+      // 戶口名簿
+      let pageNum = 1
+      while (true) {
+        const url = localStorage.getItem(`${sessionUuid}_household_page${pageNum}_url`)
+        if (!url) break
+        const match = url.match(/\/media\/(temp\/.+)$/)
+        if (match) allTempPaths.push(match[1])
+        pageNum++
+      }
+
+      // 身份證
+      const idFrontUrl = localStorage.getItem(`${sessionUuid}_id_head_front_url`)
+      const idBackUrl = localStorage.getItem(`${sessionUuid}_id_head_back_url`)
+      if (idFrontUrl) {
+        const match = idFrontUrl.match(/\/media\/(temp\/.+)$/)
+        if (match) allTempPaths.push(match[1])
+      }
+      if (idBackUrl) {
+        const match = idBackUrl.match(/\/media\/(temp\/.+)$/)
+        if (match) allTempPaths.push(match[1])
+      }
+
+      // 代理人身份證
+      if (formData.has_agent) {
+        const agentFrontUrl = localStorage.getItem(`${sessionUuid}_id_proxy_front_url`)
+        const agentBackUrl = localStorage.getItem(`${sessionUuid}_id_proxy_back_url`)
+        if (agentFrontUrl) {
+          const match = agentFrontUrl.match(/\/media\/(temp\/.+)$/)
+          if (match) allTempPaths.push(match[1])
+        }
+        if (agentBackUrl) {
+          const match = agentBackUrl.match(/\/media\/(temp\/.+)$/)
+          if (match) allTempPaths.push(match[1])
+        }
+      }
+
+      // 銀行存摺
+      const bankUrl = localStorage.getItem(`${sessionUuid}_bank_book_url`)
+      if (bankUrl) {
+        const match = bankUrl.match(/\/media\/(temp\/.+)$/)
+        if (match) allTempPaths.push(match[1])
+      }
+
+      // 簽名
+      const sigUrl = localStorage.getItem(`${sessionUuid}_signature_url`)
+      if (sigUrl) {
+        const match = sigUrl.match(/\/media\/(temp\/.+)$/)
+        if (match) allTempPaths.push(match[1])
+      }
+
+      console.log(`📋 共 ${allTempPaths.length} 個檔案需要搬移`)
+
+      // 執行搬移
+      if (allTempPaths.length > 0) {
+        const movedPaths = await moveToApplications(sessionUuid, allTempPaths)
+        console.log(`✅ 檔案已搬移到: applications/${sessionUuid}/`)
+
+        // 重建 mediaUrls 使用正式路徑
+        const baseUrl = 'https://sbevisitpj.tzuchi-org.tw/storage/v1/object/public/media'
+
+        // 戶口名簿
+        const householdMovedPaths = movedPaths.filter(p => p.includes('household-page'))
+        if (householdMovedPaths.length > 0) {
+          mediaUrls.household = householdMovedPaths.map(p => `${baseUrl}/${p}`)
+        }
+
+        // 身份證
+        const idFrontMoved = movedPaths.find(p => p.includes('id-head-front'))
+        const idBackMoved = movedPaths.find(p => p.includes('id-head-back'))
+        if (idFrontMoved) mediaUrls.idFront = `${baseUrl}/${idFrontMoved}`
+        if (idBackMoved) mediaUrls.idBack = `${baseUrl}/${idBackMoved}`
+
+        // 代理人身份證
+        const agentFrontMoved = movedPaths.find(p => p.includes('id-proxy-front'))
+        const agentBackMoved = movedPaths.find(p => p.includes('id-proxy-back'))
+        if (agentFrontMoved) mediaUrls.agentIdFront = `${baseUrl}/${agentFrontMoved}`
+        if (agentBackMoved) mediaUrls.agentIdBack = `${baseUrl}/${agentBackMoved}`
+
+        // 銀行存摺
+        const bankMoved = movedPaths.find(p => p.includes('bank-book'))
+        if (bankMoved) mediaUrls.bankBook = `${baseUrl}/${bankMoved}`
+
+        // 簽名
+        const sigMoved = movedPaths.find(p => p.includes('signature'))
+        if (sigMoved) mediaUrls.signature = `${baseUrl}/${sigMoved}`
+      }
+
+      // 收集附加檔案
       const additionalFiles: string[] = []
       let fileIndex = 1
       while (true) {
@@ -325,6 +419,7 @@ export default function NewApplicationPage() {
       const newApplicationId = insertData.id
       setApplicationId(newApplicationId)
       console.log('✅ 申請提交成功！ID:', newApplicationId)
+      console.log('📁 JSONB 中的檔案路徑已是正式區（applications/）')
 
       // 5. 清理 localStorage
       Object.keys(localStorage).forEach(key => {
@@ -333,7 +428,7 @@ export default function NewApplicationPage() {
         }
       })
 
-      // 6. 完成
+      // 7. 完成
       setCurrentStep('completed')
     } catch (error) {
       console.error('提交錯誤:', error)
@@ -493,9 +588,7 @@ export default function NewApplicationPage() {
                       aria-label="同意授權條款"
                       className="mt-1"
                     />
-                    <span className="text-sm">
-{t('application.consentCheckbox')}
-                    </span>
+                    <span className="text-sm">{t('application.consentCheckbox')}</span>
                   </label>
                 </div>
               </CardBody>
@@ -556,7 +649,7 @@ export default function NewApplicationPage() {
               <div>
                 <h1 className="text-xl font-bold">{t('application.title')}</h1>
                 <p className="text-sm text-default-500">
-{t(`application.subStep${currentSubStep}`)} ({currentSubStep}/5) - {i18n.language === 'zh-TW' ? '第2步' : 'Step 2'}
+                  {t(`application.subStep${currentSubStep}`)} ({currentSubStep}/5) - {i18n.language === 'zh-TW' ? '第2步' : 'Step 2'}
                 </p>
               </div>
             </div>
@@ -1589,16 +1682,24 @@ export default function NewApplicationPage() {
               </Card>
             )}
 
-            {/* 子步驟 5: 聯絡方式選擇 */}
+            {/* 子步驟 5: 聯絡電話 */}
             {currentSubStep === 5 && (
-              <Card className="shadow-lg">
-                <CardHeader className="flex flex-col items-start space-y-2">
-                  <h2 className="text-lg font-bold">聯絡方式</h2>
-                  <p className="text-sm text-default-500">請選擇您的聯絡方式偏好</p>
-                </CardHeader>
-                <CardBody className="space-y-6">
-                  <div className="space-y-4">
-                    {/* 提供手機號碼選項 */}
+              <ContactPhoneInput
+                householdHeadName={householdData?.householdHead?.name}
+                householdHeadPhone={formData.householdHeadPhone}
+                onHouseholdHeadPhoneChange={(phone) => setFormData({...formData, householdHeadPhone: phone})}
+                hasAgent={formData.has_agent}
+                agentName={formData.agent_name}
+                agentPhone={formData.agentPhone}
+                onAgentPhoneChange={(phone) => setFormData({...formData, agentPhone: phone})}
+              />
+            )}
+
+            {/* 舊的選項卡片已刪除 */}
+            {false && (
+              <div className="hidden">
+                <div className="space-y-4">
+                  {/* 舊代碼保留但隱藏 */}
                     <Card
                       className={`cursor-pointer border-2 transition-colors ${
                         formData.contactOption === 'provide'
@@ -1739,7 +1840,7 @@ export default function NewApplicationPage() {
               }}
               className="px-4 md:px-6 py-2 md:py-3"
             >
-{currentSubStep > 1 ? t('application.back') : t('application.backToConsent')}
+            {currentSubStep > 1 ? t('application.back') : t('application.backToConsent')}
             </Button>
 
             <Button
@@ -1778,11 +1879,8 @@ export default function NewApplicationPage() {
                   /^[0-9]{5,20}$/.test(formData.bank_account) &&
                   formData.account_name.trim()
                 )) ||
-                // 子步驟 5: 聯絡方式驗證
-                (currentSubStep === 5 && (
-                  !formData.contactOption || // 沒有選擇任何選項
-                  (formData.contactOption === 'provide' && !formData.phone_number.trim())
-                ))
+                // 子步驟 5: 聯絡電話驗證（至少一個）
+                (currentSubStep === 5 && !formData.householdHeadPhone && !formData.agentPhone)
               }
               className="px-6 md:px-8 py-2 md:py-3"
             >
