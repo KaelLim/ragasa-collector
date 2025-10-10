@@ -110,6 +110,16 @@ export default function NewApplicationPage() {
   const [householdData, setHouseholdData] = useState<any>(null)
   const [householdScanStarted, setHouseholdScanStarted] = useState(false)
 
+  // OCR 驗證狀態
+  const [showOCRConfirmModal, setShowOCRConfirmModal] = useState(false)
+  const [ocrMismatchData, setOcrMismatchData] = useState<{
+    ocrName: string
+    ocrIdNumber: string
+    householdName: string
+    householdIdNumber: string
+    capturedFile: File
+  } | null>(null)
+
   // 倒數計時器 Hook - 必須在頂層調用，不能在條件內
   const { timeLeft, isComplete, percentage } = useCountdown(5, {
     autoStart: currentStep === 'consent-form'
@@ -731,10 +741,39 @@ export default function NewApplicationPage() {
                               if (response.ok) {
                                 const result = await response.json()
                                 if (result.data) {
+                                  const ocrName = result.data.name || ''
+                                  const ocrIdNumber = result.data.idNumber || ''
+
+                                  // 驗證：比對戶口名簿戶長資料
+                                  if (householdData?.householdHead) {
+                                    const householdName = householdData.householdHead.name || ''
+                                    const householdIdNumber = householdData.householdHead.idNumber || ''
+
+                                    // 檢查是否一致（容許部分匹配，因 OCR 可能有錯字）
+                                    const nameMatch = ocrName === householdName ||
+                                                      ocrName.includes(householdName) ||
+                                                      householdName.includes(ocrName)
+                                    const idMatch = ocrIdNumber === householdIdNumber
+
+                                    // 如果不一致，彈出確認對話框
+                                    if (!nameMatch || !idMatch) {
+                                      setOcrMismatchData({
+                                        ocrName,
+                                        ocrIdNumber,
+                                        householdName,
+                                        householdIdNumber,
+                                        capturedFile: file
+                                      })
+                                      setShowOCRConfirmModal(true)
+                                      return // 等待使用者確認
+                                    }
+                                  }
+
+                                  // 資料一致或無戶口名簿資料，直接填入
                                   setFormData(prev => ({
                                     ...prev,
-                                    victim_name: result.data.name || prev.victim_name,
-                                    id_number: result.data.idNumber || prev.id_number
+                                    victim_name: ocrName || prev.victim_name,
+                                    id_number: ocrIdNumber || prev.id_number
                                   }))
                                 }
                               }
@@ -2164,6 +2203,118 @@ export default function NewApplicationPage() {
           </Button>
         </div>
       </div>
+    )
+  }
+
+  // OCR 資料不一致確認對話框
+  if (showOCRConfirmModal && ocrMismatchData) {
+    return (
+      <Modal
+        isOpen={true}
+        onClose={() => setShowOCRConfirmModal(false)}
+        size="lg"
+        isDismissable={false}
+      >
+        <ModalContent>
+          <ModalHeader>
+            <div className="flex items-center gap-2">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="orange">
+                <path d="M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z" />
+              </svg>
+              <span className="text-warning">資料不一致，請確認</span>
+            </div>
+          </ModalHeader>
+          <ModalBody className="space-y-4 pb-6">
+            <div className="bg-warning-50 border border-warning-200 rounded-lg p-4">
+              <p className="text-sm text-warning-800 font-medium mb-2">
+                ⚠️ 身分證 OCR 識別結果與戶口名簿資料不符
+              </p>
+              <p className="text-xs text-warning-700">
+                請確認您拍攝/上傳的是否為戶長的身份證正面？
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              {/* 戶口名簿資料 */}
+              <div className="bg-success-50 border border-success-200 rounded-lg p-3">
+                <p className="text-xs text-success-700 font-semibold mb-2">
+                  ✓ 戶口名簿資料（正確）
+                </p>
+                <div className="space-y-1 text-sm">
+                  <div>
+                    <span className="text-default-500">姓名：</span>
+                    <span className="font-medium text-success-800">{ocrMismatchData.householdName}</span>
+                  </div>
+                  <div>
+                    <span className="text-default-500">身分證：</span>
+                    <span className="font-medium text-success-800">{ocrMismatchData.householdIdNumber}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* OCR 識別結果 */}
+              <div className="bg-danger-50 border border-danger-200 rounded-lg p-3">
+                <p className="text-xs text-danger-700 font-semibold mb-2">
+                  ⚠️ 身分證 OCR 結果
+                </p>
+                <div className="space-y-1 text-sm">
+                  <div>
+                    <span className="text-default-500">姓名：</span>
+                    <span className="font-medium text-danger-800">{ocrMismatchData.ocrName}</span>
+                  </div>
+                  <div>
+                    <span className="text-default-500">身分證：</span>
+                    <span className="font-medium text-danger-800">{ocrMismatchData.ocrIdNumber}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-primary-50 border border-primary-200 rounded-lg p-4">
+              <p className="text-sm text-primary-800 font-medium mb-3">
+                請確認您拍攝/上傳的身份證是否為戶長本人？
+              </p>
+              <div className="space-y-2">
+                <Button
+                  color="success"
+                  size="lg"
+                  className="w-full"
+                  onClick={() => {
+                    // 選「是」→ 使用戶口名簿資料校正
+                    setFormData(prev => ({
+                      ...prev,
+                      victim_name: ocrMismatchData.householdName,
+                      id_number: ocrMismatchData.householdIdNumber
+                    }))
+                    setShowOCRConfirmModal(false)
+                    setOcrMismatchData(null)
+                  }}
+                >
+                  ✓ 是，這是戶長身份證（使用戶口名簿資料校正）
+                </Button>
+                <Button
+                  color="danger"
+                  variant="flat"
+                  size="lg"
+                  className="w-full"
+                  onClick={() => {
+                    // 選「否」→ 清除照片，重新拍攝
+                    setFormData(prev => ({ ...prev, front_id_photo: undefined }))
+                    setShowOCRConfirmModal(false)
+                    setOcrMismatchData(null)
+                  }}
+                >
+                  ✗ 否，拍錯了（重新拍攝）
+                </Button>
+              </div>
+            </div>
+
+            <p className="text-xs text-center text-default-500">
+              💡 提示：如果確認是戶長身份證，系統將以戶口名簿資料為準進行校正
+            </p>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
     )
   }
 
