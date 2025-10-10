@@ -744,10 +744,16 @@ export default function NewApplicationPage() {
                                   const ocrName = result.data.name || ''
                                   const ocrIdNumber = result.data.idNumber || ''
 
+                                  console.log('🔍 身分證 OCR 驗證：')
+                                  console.log('  OCR 結果:', { ocrName, ocrIdNumber })
+                                  console.log('  戶口名簿戶長:', householdData?.householdHead)
+
                                   // 驗證：比對戶口名簿戶長資料
                                   if (householdData?.householdHead) {
                                     const householdName = householdData.householdHead.name || ''
                                     const householdIdNumber = householdData.householdHead.idNumber || ''
+
+                                    console.log('  戶口名簿資料:', { householdName, householdIdNumber })
 
                                     // 檢查是否一致（容許部分匹配，因 OCR 可能有錯字）
                                     const nameMatch = ocrName === householdName ||
@@ -755,8 +761,11 @@ export default function NewApplicationPage() {
                                                       householdName.includes(ocrName)
                                     const idMatch = ocrIdNumber === householdIdNumber
 
+                                    console.log('  比對結果:', { nameMatch, idMatch })
+
                                     // 如果不一致，彈出確認對話框
                                     if (!nameMatch || !idMatch) {
+                                      console.log('⚠️ 資料不一致，彈出確認對話框')
                                       setOcrMismatchData({
                                         ocrName,
                                         ocrIdNumber,
@@ -767,6 +776,10 @@ export default function NewApplicationPage() {
                                       setShowOCRConfirmModal(true)
                                       return // 等待使用者確認
                                     }
+
+                                    console.log('✅ 資料一致，直接填入')
+                                  } else {
+                                    console.log('ℹ️ 無戶口名簿資料，直接填入 OCR 結果')
                                   }
 
                                   // 資料一致或無戶口名簿資料，直接填入
