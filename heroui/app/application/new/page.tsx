@@ -361,7 +361,7 @@ export default function NewApplicationPage() {
         contact: {
           phones: phones.length > 0 ? phones : null
         },
-        signature: signatureUrl || null,
+        signature: mediaUrls.signature || null,
         media: mediaUrls,
         additionalFiles: additionalFiles.length > 0 ? additionalFiles : null
       }
