@@ -212,43 +212,8 @@ export default function NewApplicationPage() {
         throw new Error('用戶未登入')
       }
 
-      // 2. 收集所有 Storage URL（從 localStorage）
+      // 2. 收集所有 Storage URL 並搬移檔案
       const mediaUrls: any = {}
-
-      // 戶口名簿（可能多頁）
-      const householdUrls: string[] = []
-      let pageNum = 1
-      while (true) {
-        const url = localStorage.getItem(`${sessionUuid}_household_page${pageNum}_url`)
-        if (!url) break
-        householdUrls.push(url)
-        pageNum++
-      }
-      if (householdUrls.length > 0) mediaUrls.household = householdUrls
-
-      // 身份證
-      const idFrontUrl = localStorage.getItem(`${sessionUuid}_id_head_front_url`)
-      const idBackUrl = localStorage.getItem(`${sessionUuid}_id_head_back_url`)
-      if (idFrontUrl) mediaUrls.idFront = idFrontUrl
-      if (idBackUrl) mediaUrls.idBack = idBackUrl
-
-      // 代理人身份證（如果有）
-      if (formData.has_agent) {
-        const agentIdFrontUrl = localStorage.getItem(`${sessionUuid}_id_proxy_front_url`)
-        const agentIdBackUrl = localStorage.getItem(`${sessionUuid}_id_proxy_back_url`)
-        if (agentIdFrontUrl) mediaUrls.agentIdFront = agentIdFrontUrl
-        if (agentIdBackUrl) mediaUrls.agentIdBack = agentIdBackUrl
-      }
-
-      // 銀行存摺
-      const bankUrl = localStorage.getItem(`${sessionUuid}_bank_book_url`)
-      if (bankUrl) mediaUrls.bankBook = bankUrl
-
-      // 簽名（如果有）
-      const signatureUrl = localStorage.getItem(`${sessionUuid}_signature_url`)
-      if (signatureUrl) mediaUrls.signature = signatureUrl
-
-      // 2.5 先搬移所有檔案到正式區（applications/sessionUuid/）
       console.log('📦 提交前先搬移檔案到正式區...')
 
       // 收集所有 temp/ 路徑
@@ -639,9 +604,10 @@ export default function NewApplicationPage() {
   // 第三步：基本資料表單
   if (currentStep === 'application-form') {
     return (
-      <div className="min-h-screen flex flex-col">
-        {/* Header - RWD 友善 */}
-        <div className="bg-background border-b border-divider p-3 md:p-4">
+      <>
+        <div className="min-h-screen flex flex-col">
+          {/* Header - RWD 友善 */}
+          <div className="bg-background border-b border-divider p-3 md:p-4">
           {/* 桌面版 Header */}
           <div className="hidden md:flex justify-between items-center max-w-6xl mx-auto">
             <div className="flex items-center gap-4">
@@ -1696,132 +1662,6 @@ export default function NewApplicationPage() {
             )}
 
             {/* 舊的選項卡片已刪除 */}
-            {false && (
-              <div className="hidden">
-                <div className="space-y-4">
-                  {/* 舊代碼保留但隱藏 */}
-                    <Card
-                      className={`cursor-pointer border-2 transition-colors ${
-                        formData.contactOption === 'provide'
-                          ? 'border-primary bg-primary-50'
-                          : 'border-default-200 hover:border-default-400'
-                      }`}
-                      isPressable={formData.contactOption !== 'provide'}
-                      onClick={() => {
-                        if (formData.contactOption !== 'provide') {
-                          setFormData({...formData, contactOption: 'provide'})
-                          setTempPhoneNumber(formData.phone_number)
-                          setShowNumberPad(true)
-                        }
-                      }}
-                    >
-                      <CardBody className="p-6">
-                        <div className="flex items-start gap-4">
-                          <div className={`rounded-full w-5 h-5 border-2 flex items-center justify-center ${
-                            formData.contactOption === 'provide'
-                              ? 'border-primary'
-                              : 'border-default-400'
-                          }`}>
-                            {formData.contactOption === 'provide' && (
-                              <div className="w-3 h-3 bg-primary rounded-full" />
-                            )}
-                          </div>
-                          <div className="flex-1">
-                            <h3 className="text-md font-semibold mb-2">提供手機號碼</h3>
-                            <p className="text-sm text-default-600 mb-3">
-                              我願意提供手機號碼，以便接收申請進度通知與重要訊息
-                            </p>
-                            {formData.contactOption === 'provide' && formData.phone_number && (
-                              <div className="mt-4 bg-white dark:bg-gray-800 rounded-lg p-4">
-                                <div className="flex items-center justify-between">
-                                  <div>
-                                    <p className="text-sm font-medium">手機號碼</p>
-                                    <p className="text-lg text-primary">{formData.phone_number}</p>
-                                  </div>
-                                  <Button
-                                    size="sm"
-                                    variant="light"
-                                    color="primary"
-                                    onPress={() => {
-                                      setTempPhoneNumber(formData.phone_number)
-                                      setShowNumberPad(true)
-                                    }}
-                                  >
-                                    修改
-                                  </Button>
-                                </div>
-                                <p className="text-xs text-default-500 mt-2">
-                                  * 我們將透過簡訊通知您申請進度
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </CardBody>
-                    </Card>
-
-                    {/* 不提供手機號碼選項 */}
-                    <Card
-                      className={`cursor-pointer border-2 transition-colors ${
-                        formData.contactOption === 'skip'
-                          ? 'border-primary bg-primary-50'
-                          : 'border-default-200 hover:border-default-400'
-                      }`}
-                      isPressable
-                      onClick={() => setFormData({...formData, contactOption: 'skip', phone_number: ''})}
-                    >
-                      <CardBody className="p-6">
-                        <div className="flex items-start gap-4">
-                          <div className={`rounded-full w-5 h-5 border-2 flex items-center justify-center ${
-                            formData.contactOption === 'skip'
-                              ? 'border-primary'
-                              : 'border-default-400'
-                          }`}>
-                            {formData.contactOption === 'skip' && (
-                              <div className="w-3 h-3 bg-primary rounded-full" />
-                            )}
-                          </div>
-                          <div className="flex-1">
-                            <h3 className="text-md font-semibold mb-2">暫不提供手機號碼</h3>
-                            <p className="text-sm text-default-600 mb-3">
-                              我暫時無法提供手機號碼，了解可能無法即時收到申請進度通知
-                            </p>
-                            {formData.contactOption === 'skip' && (
-                              <div className="mt-3 bg-warning-50 rounded-lg p-3">
-                                <p className="text-xs text-warning-700">
-                                  ⚠️ 注意：不提供手機號碼將無法接收進度簡訊通知，您需要主動登入系統查看申請狀態
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </CardBody>
-                    </Card>
-                  </div>
-
-                  {/* 說明文字 */}
-                  <div className="bg-default-50 rounded-lg p-4">
-                    <p className="text-sm text-default-700">
-                      <strong>關於聯絡方式：</strong>
-                    </p>
-                    <ul className="text-sm text-default-600 mt-2 space-y-1 list-disc list-inside">
-                      <li>手機號碼僅用於申請進度通知，不會用於其他商業用途</li>
-                      <li>即使不提供手機號碼，您的申請仍會正常處理</li>
-                      <li>您可以隨時登入系統查看申請狀態</li>
-                    </ul>
-                  </div>
-
-                  {/* 提交錯誤訊息 */}
-                  {submitError && (
-                    <div className="bg-danger-50 border border-danger-200 rounded-lg p-4">
-                      <p className="text-sm text-danger-700">
-                        <strong>錯誤：</strong>{submitError}
-                      </p>
-                    </div>
-                  )}
-                </CardBody>
-              </Card>
-            )}
 
           </div>
         </div>
@@ -2041,7 +1881,8 @@ export default function NewApplicationPage() {
             </ModalBody>
           </ModalContent>
         </Modal>
-      </div>
+        </div>
+      </>
     )
   }
 
