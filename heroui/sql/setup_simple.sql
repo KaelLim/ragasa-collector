@@ -41,6 +41,8 @@ CREATE TABLE public.disaster_applications (
   front_id_photo VARCHAR(255),
   back_id_photo VARCHAR(255),
   bank_photo VARCHAR(255),
+  household_registry_photo VARCHAR(255),
+  household_transcript_photo VARCHAR(255),
   status VARCHAR(20) DEFAULT 'submitted',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()

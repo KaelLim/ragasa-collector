@@ -13,13 +13,15 @@ interface CameraCaptureProps {
   label: string
   isRequired?: boolean
   currentImage?: string | null
+  onOriginalFileSelected?: (file: File) => Promise<void>  // 原始檔案選擇時調用（ImageEditor 之前）
 }
 
 export default function CameraCapture({
   onCapture,
   label,
   isRequired = false,
-  currentImage
+  currentImage,
+  onOriginalFileSelected
 }: CameraCaptureProps) {
   const { i18n, t } = useTranslation()
   const [isOpen, setIsOpen] = useState(false)
@@ -111,9 +113,27 @@ export default function CameraCapture({
     handleOpenCamera()
   }
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file && file.type.startsWith('image/')) {
+      console.log('📁 檔案選擇:', {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        lastModified: new Date(file.lastModified).toISOString()
+      })
+
+      // 先保存原始檔案（如果有回調）
+      if (onOriginalFileSelected) {
+        try {
+          console.log(`💾 保存原始檔案（${file.size} bytes）...`)
+          await onOriginalFileSelected(file)
+          console.log('✅ 原始檔案已保存（進入 ImageEditor 前）')
+        } catch (error) {
+          console.error('❌ 原始檔案保存失敗:', error)
+        }
+      }
+
       const imageUrl = URL.createObjectURL(file)
 
       // 讀取 EXIF 資訊

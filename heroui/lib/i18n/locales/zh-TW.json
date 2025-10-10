@@ -15,7 +15,11 @@
     "filter": "篩選",
     "clear": "清除",
     "select": "選擇",
-    "logout": "登出"
+    "logout": "登出",
+    "takePhoto": "拍照",
+    "uploadFile": "上傳檔案",
+    "remove": "移除",
+    "reset": "重置"
   },
   "auth": {
     "login": "登入",
@@ -37,6 +41,7 @@
     "defaultPassword": "預設密碼：",
     "defaultPasswordNote": "註冊後請使用此密碼登入",
     "registrationSuccess": "註冊成功！您的預設密碼是：94800552",
+    "registrationSuccessWithConfirmation": "註冊成功！請檢查您的電子郵件並點擊確認連結以啟用帳號。確認後使用預設密碼 94800552 登入。",
     "redirecting": "即將跳轉...",
     "loginError": "登入失敗：",
     "registerError": "註冊失敗：",
@@ -86,10 +91,11 @@
     "step1": "上人慰問信",
     "step2": "個資授權同意書",
     "step3": "應急慰問金匯款資訊",
-    "subStep1": "基本資料",
-    "subStep2": "證件拍照",
-    "subStep3": "電子簽名",
-    "subStep4": "確認提交",
+    "subStep1": "戶口名簿/戶籍謄本",
+    "subStep2": "身份證拍照辨識",
+    "subStep3": "銀行存摺資料",
+    "subStep4": "資料確認",
+    "subStep5": "聯絡方式",
     "back": "返回",
     "backToConsent": "返回同意書",
     "nextStep": "下一步",
@@ -151,5 +157,33 @@
     "readAndContinue": "我已閱讀，繼續下一步",
     "agreeAndContinue": "同意並繼續",
     "consentCheckbox": "我已詳細閱讀上述個資授權同意書內容，並同意慈濟基金會依上述目的蒐集、處理及利用我的個人資料"
+  },
+  "householdRegistration": {
+    "title": "戶籍文件上傳",
+    "description": "請上傳戶口名簿或戶籍謄本（至少一份）",
+    "selectType": "選擇文件類型",
+    "documentType": "文件類型",
+    "householdRegistry": "戶口名簿",
+    "householdTranscript": "戶籍謄本",
+    "addDocument": "新增文件",
+    "uploadedDocuments": "已新增的文件",
+    "pleaseAddDocument": "請至少新增一份戶籍文件",
+    "takePhoto": "拍照",
+    "uploadFile": "選擇檔案",
+    "remove": "移除"
+  },
+  "pdfSegmenter": {
+    "title": "PDF 分割上傳",
+    "description": "上傳 PDF 文件，系統將每頁自動切割成 5 個片段供辨識",
+    "selectPDF": "選擇 PDF 檔案",
+    "totalPages": "總頁數",
+    "processed": "已處理",
+    "processing": "處理中...",
+    "addPage": "新增第",
+    "page": "第",
+    "segments": "片段",
+    "processedPages": "已處理頁面",
+    "allPagesProcessed": "所有頁面已處理完成！",
+    "maxPagesReached": "已達到最大頁數限制"
   }
 }

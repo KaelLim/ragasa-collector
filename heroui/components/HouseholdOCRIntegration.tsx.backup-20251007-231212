@@ -1,0 +1,337 @@
+'use client'
+
+import { Card, CardHeader, CardBody } from '@heroui/card'
+import { Button } from '@heroui/button'
+import { Progress } from '@heroui/progress'
+import { Chip } from '@heroui/chip'
+import { useTranslation } from 'react-i18next'
+import { useState, useRef } from 'react'
+import { usePDFSegmentation } from '@/hooks/usePDFSegmentation'
+import { useHouseholdOCR } from '@/hooks/useHouseholdOCR'
+import type { HouseholdDataJSON } from './HouseholdRegistration'
+import HouseholdRegistration from './HouseholdRegistration'
+
+interface HouseholdOCRIntegrationProps {
+  onDataChange?: (data: HouseholdDataJSON) => void
+  onDocumentsChange?: (hasDocuments: boolean) => void
+}
+
+export default function HouseholdOCRIntegration({
+  onDataChange,
+  onDocumentsChange
+}: HouseholdOCRIntegrationProps) {
+  const { t } = useTranslation()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // PDF 分割狀態
+  const {
+    pages,
+    currentPage,
+    totalPages,
+    isProcessing: isPDFProcessing,
+    error: pdfError,
+    selectPDFFile,
+    addNextPage,
+    reset: resetPDF,
+  } = usePDFSegmentation()
+
+  // OCR 處理狀態
+  const {
+    processAllSegments,
+    progress,
+    errors: ocrErrors,
+    isProcessing: isOCRProcessing,
+    isCompleted: isOCRCompleted,
+  } = useHouseholdOCR()
+
+  // 戶口名簿資料
+  const [householdData, setHouseholdData] = useState<HouseholdDataJSON | null>(null)
+  const [showForm, setShowForm] = useState(false)
+
+  /**
+   * 檔案選擇處理
+   */
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      await selectPDFFile(file)
+      onDocumentsChange?.(true)
+    }
+  }
+
+  /**
+   * 觸發檔案選擇器
+   */
+  const handleSelectFileClick = () => {
+    fileInputRef.current?.click()
+  }
+
+  /**
+   * 新增並處理下一頁
+   */
+  const handleAddNextPage = async () => {
+    if (pages.length >= 1) {
+      alert('戶口名簿 OCR 目前僅支援單頁處理')
+      return
+    }
+
+    await addNextPage()
+  }
+
+  /**
+   * 開始 OCR 掃描
+   */
+  const handleStartOCR = async () => {
+    if (pages.length === 0) {
+      alert('請先新增 PDF 頁面')
+      return
+    }
+
+    // 取得第一頁的 6 個切片
+    const segments = pages[0].segments
+
+    if (segments.length !== 6) {
+      alert(`切片數量錯誤：預期 6 個，實際 ${segments.length} 個`)
+      return
+    }
+
+    // 將 PDFSegment 的 blob 轉換為純 Blob 陣列
+    const blobs = segments.map(seg => seg.blob)
+
+    // 開始批次 OCR 處理
+    const result = await processAllSegments(blobs)
+
+    if (result) {
+      setHouseholdData(result)
+      setShowForm(true)
+      onDataChange?.(result)
+    } else {
+      alert('OCR 處理失敗，請檢查錯誤訊息')
+    }
+  }
+
+  /**
+   * 重新開始
+   */
+  const handleReset = () => {
+    resetPDF()
+    setHouseholdData(null)
+    setShowForm(false)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+    onDocumentsChange?.(false)
+  }
+
+  /**
+   * 戶口名簿資料變更處理
+   */
+  const handleHouseholdDataChange = (data: HouseholdDataJSON) => {
+    setHouseholdData(data)
+    onDataChange?.(data)
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* PDF 上傳與分割 */}
+      {!showForm && (
+        <Card className="shadow-lg">
+          <CardHeader className="flex flex-col items-start space-y-2">
+            <h2 className="text-lg font-bold">戶口名簿 OCR 掃描</h2>
+            <p className="text-sm text-default-500">
+              上傳戶口名簿 PDF，系統將自動切割並辨識內容
+            </p>
+          </CardHeader>
+
+          <CardBody className="space-y-4">
+            {/* 檔案選擇 */}
+            {!totalPages && (
+              <div className="space-y-2">
+                <Button
+                  color="primary"
+                  onClick={handleSelectFileClick}
+                  className="w-full"
+                  isDisabled={isPDFProcessing}
+                >
+                  選擇 PDF 檔案
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+              </div>
+            )}
+
+            {/* PDF 資訊 */}
+            {totalPages && (
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium">
+                    總頁數: {totalPages}
+                  </span>
+                  <Button
+                    color="danger"
+                    size="sm"
+                    variant="light"
+                    onClick={handleReset}
+                  >
+                    重新開始
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* 錯誤訊息 */}
+            {pdfError && (
+              <div className="p-3 bg-danger-50 border border-danger-200 rounded-lg">
+                <p className="text-sm text-danger-600">{pdfError}</p>
+              </div>
+            )}
+
+            {/* 新增頁面按鈕 */}
+            {totalPages && currentPage <= totalPages && pages.length === 0 && (
+              <Button
+                color="success"
+                onClick={handleAddNextPage}
+                isLoading={isPDFProcessing}
+                className="w-full"
+              >
+                {isPDFProcessing ? '處理中...' : `新增第 ${currentPage} 頁`}
+              </Button>
+            )}
+
+            {/* 頁面預覽 */}
+            {pages.length > 0 && (
+              <div className="space-y-4">
+                <Card className="border-2 border-default-200">
+                  <CardBody className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">
+                          第 {pages[0].pageNumber} 頁
+                        </span>
+                        <Chip color="primary" size="sm" variant="flat">
+                          {pages[0].segments.length} 個切片
+                        </Chip>
+                      </div>
+                    </div>
+
+                    {/* 切片預覽 */}
+                    <div className="grid grid-cols-3 gap-2">
+                      {pages[0].segments.map((segment) => (
+                        <div
+                          key={`${segment.pageNumber}-${segment.segmentIndex}`}
+                          className="relative aspect-video rounded-lg overflow-hidden bg-default-100 border border-default-200"
+                        >
+                          <img
+                            src={segment.dataUrl}
+                            alt={`切片 ${segment.segmentIndex}`}
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute top-1 left-1">
+                            <Chip color="secondary" size="sm" variant="solid">
+                              {segment.segmentIndex === 1 ? '戶長' : `成員${segment.segmentIndex - 1}`}
+                            </Chip>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardBody>
+                </Card>
+
+                {/* OCR 掃描按鈕 */}
+                {!isOCRProcessing && !isOCRCompleted && (
+                  <Button
+                    color="primary"
+                    size="lg"
+                    onClick={handleStartOCR}
+                    className="w-full"
+                  >
+                    開始 AI 掃描辨識
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {/* OCR 處理進度 */}
+            {isOCRProcessing && (
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium">AI 掃描進度</span>
+                  <span className="text-sm text-default-500">
+                    {progress.current} / {progress.total}
+                  </span>
+                </div>
+                <Progress
+                  value={progress.percentage}
+                  className="w-full"
+                  color="primary"
+                />
+                {progress.currentSegment && (
+                  <p className="text-xs text-default-500">
+                    正在處理: {progress.currentSegment}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* OCR 錯誤訊息 */}
+            {ocrErrors.length > 0 && (
+              <div className="p-3 bg-warning-50 border border-warning-200 rounded-lg">
+                <p className="text-sm font-medium text-warning-700 mb-2">
+                  部分切片辨識失敗：
+                </p>
+                {ocrErrors.map((err) => (
+                  <p key={err.segmentIndex} className="text-xs text-warning-600">
+                    • 切片 {err.segmentIndex}: {err.error}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {/* OCR 完成提示 */}
+            {isOCRCompleted && (
+              <div className="text-center p-4 bg-success-50 rounded-lg">
+                <p className="text-sm text-success-600 mb-2">
+                  ✓ AI 掃描完成！正在載入資料編輯表單...
+                </p>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      )}
+
+      {/* 資料編輯表單 */}
+      {showForm && householdData && (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-lg font-semibold">戶口名簿資料確認</h3>
+            <Button
+              color="warning"
+              size="sm"
+              variant="light"
+              onClick={handleReset}
+            >
+              重新掃描
+            </Button>
+          </div>
+
+          <HouseholdRegistration
+            mode="form"
+            initialData={householdData}
+            onHouseholdDataChange={handleHouseholdDataChange}
+          />
+
+          <div className="p-3 bg-primary-50 rounded-lg">
+            <p className="text-xs text-primary-700">
+              ℹ️ 請仔細檢查 AI 辨識的結果，如有錯誤請手動修正後再繼續
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

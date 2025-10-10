@@ -88,6 +88,23 @@ export default function BankSelector({
     }
   }
 
+  // 處理手動輸入的銀行代碼
+  const handleInputChange = (value: string) => {
+    setInputValue(value)
+
+    // 如果輸入的是 3 位數字，視為銀行代碼
+    if (/^\d{3}$/.test(value)) {
+      const selectedBank = bankCodes.find(bank => bank.code === value)
+      if (selectedBank) {
+        // 找到對應銀行，自動填入名稱
+        onSelectionChange(selectedBank.code, selectedBank.name)
+      } else {
+        // 沒有找到對應銀行，但仍接受手動輸入的代碼
+        onSelectionChange(value, '手動輸入')
+      }
+    }
+  }
+
   return (
     <Autocomplete
       label={label}
@@ -96,11 +113,11 @@ export default function BankSelector({
       variant="bordered"
       className="w-full"
       inputValue={inputValue}
-      onInputChange={setInputValue}
+      onInputChange={handleInputChange}
       onSelectionChange={handleSelectionChange}
       selectedKey={selectedBankCode ? `${selectedBankCode}-${bankCodes.find(b => b.code === selectedBankCode)?.name}` : null}
       items={filteredBanks}
-      allowsCustomValue={false}
+      allowsCustomValue={true}
       aria-label={label || "選擇銀行"}
       listboxProps={{
         emptyContent: "找不到符合的銀行"

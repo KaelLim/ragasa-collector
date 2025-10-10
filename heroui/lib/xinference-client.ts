@@ -439,7 +439,13 @@ class XinferenceOCRClient {
 
     if (segmentIndex === 0) {
       // 辨識全體成員
-      prompt = `請識別這張戶口名簿的全體成員資料。以 JSON 格式輸出：
+      prompt = `請識別這張戶口名簿的全體成員資料。
+
+**重要提醒**：
+- 仔細辨識相似字：瑩/螢、燕/艷、鴻/洪、薰/熏、萱/瑄、敏/敬
+- 以實際看到的字為準
+
+以 JSON 格式輸出：
 {
   "householdHead": {"name":"戶長姓名","gender":"性別","birthDate":"YYYY-MM-DD","idNumber":"身分證字號","relationship":"戶長"},
   "members": [
@@ -447,7 +453,7 @@ class XinferenceOCRClient {
   ]
 }
 所有出生日期請轉換為西元年 YYYY-MM-DD 格式。`
-      systemPrompt = '你是專業的台灣戶口名簿 OCR 助手。請識別戶長和所有成員的完整資料，以 JSON 格式輸出。'
+      systemPrompt = '你是專業的台灣戶口名簿 OCR 助手。請仔細辨識每個字，特別注意相似字（如瑩/螢、燕/艷）的細微差異。以實際看到的字形為準，以 JSON 格式輸出。'
     } else if (segmentIndex === 1) {
       // 只辨識戶長
       prompt = `請識別這張戶口名簿戶長的資料，提取：姓名、性別、出生年月日（轉為西元年 YYYY-MM-DD）、身分證字號。以 JSON 格式輸出：{"name":"姓名","gender":"性別","birthDate":"YYYY-MM-DD","idNumber":"身分證字號","relationship":"戶長"}`

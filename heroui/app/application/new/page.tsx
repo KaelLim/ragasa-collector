@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { Card, CardBody, CardHeader } from '@heroui/card'
 import { Button } from '@heroui/button'
 import { Progress } from '@heroui/progress'
@@ -16,8 +17,17 @@ import MobileMenu from '@/components/MobileMenu'
 import CameraCapture from '@/components/CameraCapture'
 import SignatureCanvas from '@/components/SignatureCanvas'
 import BankSelector from '@/components/BankSelector'
+import HouseholdRegistration from '@/components/HouseholdRegistration'
 import { supabase, type BankCode } from '@/lib/supabase'
 import { useCountdown } from '@/hooks/useCountdown'
+import { useHouseholdUpload, type HouseholdDocument } from '@/hooks/useHouseholdUpload'
+import { generateApplicationUuid } from '@/lib/storage-helpers'
+
+// 動態載入 HouseholdOCRIntegration（僅客戶端）
+const HouseholdOCRIntegration = dynamic(
+  () => import('@/components/HouseholdOCRIntegration'),
+  { ssr: false, loading: () => <div className="text-center p-4"><Spinner /></div> }
+)
 
 type FormStep = 'consent-form' | 'application-form' | 'document-upload' | 'completed'
 
@@ -33,20 +43,26 @@ export default function NewApplicationPage() {
   const [isAgreed, setIsAgreed] = useState(false)
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [currentSubStep, setCurrentSubStep] = useState(1) // 第三步的子步驟
-  const [applicationId, setApplicationId] = useState<string | null>(null)
+  const [sessionUuid, setSessionUuid] = useState<string>('') // 表單會話 UUID7（用於檔案命名）
+  const [applicationId, setApplicationId] = useState<string | null>(null) // 最終申請編號（資料庫生成）
 
   // 表單資料
   const [formData, setFormData] = useState({
     victim_name: '',
     id_number: '',
-    phone_number: '',
     address: '',
     bank_code: '',
     bank_name: '',
     bank_branch: '',
     bank_account: '',
     account_name: '',
-    contactOption: '' as '' | 'provide' | 'skip'
+    // 手機號碼（雙手機支援）
+    householdHeadPhone: '',  // 戶長手機
+    agentPhone: '',          // 代理人手機
+    has_agent: false,
+    agent_name: '',
+    agent_id_number: '',
+    agent_address: ''
   })
 
   // 數字鍵盤狀態
@@ -58,6 +74,8 @@ export default function NewApplicationPage() {
     frontIdPhoto: null as File | null,
     backIdPhoto: null as File | null,
     bankPhoto: null as File | null,
+    frontIdPhotoAgent: null as File | null, // 代理人身份證正面
+    backIdPhotoAgent: null as File | null,  // 代理人身份證背面
     // signature: null as File | null - 簽名已移除
   })
 
@@ -83,6 +101,14 @@ export default function NewApplicationPage() {
 
   const router = useRouter()
 
+  // 戶口名簿上傳 Hook
+  const householdUpload = useHouseholdUpload()
+
+  // 戶口名簿資料狀態
+  const [hasHouseholdData, setHasHouseholdData] = useState(false)
+  const [householdData, setHouseholdData] = useState<any>(null)
+  const [householdScanStarted, setHouseholdScanStarted] = useState(false)
+
   // 倒數計時器 Hook - 必須在頂層調用，不能在條件內
   const { timeLeft, isComplete, percentage } = useCountdown(5, {
     autoStart: currentStep === 'consent-form'
@@ -99,6 +125,15 @@ export default function NewApplicationPage() {
     checkAuth()
   }, [router])
 
+  // 生成表單會話 UUID7（用於檔案命名）
+  useEffect(() => {
+    if (!sessionUuid) {
+      const uuid = generateApplicationUuid()
+      setSessionUuid(uuid)
+      console.log('📋 表單會話 UUID7 已生成:', uuid)
+    }
+  }, [sessionUuid])
+
   // 載入銀行代碼
   useEffect(() => {
     const fetchBankCodes = async () => {
@@ -108,8 +143,16 @@ export default function NewApplicationPage() {
         .order('type', { ascending: true })
         .order('name', { ascending: true })
 
+      if (error) {
+        console.error('載入銀行代碼失敗:', error)
+        console.log('Supabase URL:', supabase.supabaseUrl)
+      }
+
       if (data) {
+        console.log('成功載入銀行代碼:', data.length, '筆')
         setBankCodes(data)
+      } else {
+        console.warn('未載入到銀行代碼資料')
       }
     }
 
@@ -156,7 +199,7 @@ export default function NewApplicationPage() {
     return fileName
   }
 
-  // 提交完整申請
+  // 提交完整申請（JSONB 格式）
   const handleFinalSubmit = async () => {
     setIsSubmitting(true)
     setSubmitError('')
@@ -168,58 +211,127 @@ export default function NewApplicationPage() {
         throw new Error('用戶未登入')
       }
 
-      // 2. 插入基本資料到資料庫
-      const { data: applicationData, error: insertError } = await supabase
+      // 2. 收集所有 Storage URL（從 localStorage）
+      const mediaUrls: any = {}
+
+      // 戶口名簿（可能多頁）
+      const householdUrls: string[] = []
+      let pageNum = 1
+      while (true) {
+        const url = localStorage.getItem(`${sessionUuid}_household_page${pageNum}_url`)
+        if (!url) break
+        householdUrls.push(url)
+        pageNum++
+      }
+      if (householdUrls.length > 0) mediaUrls.household = householdUrls
+
+      // 身份證
+      const idFrontUrl = localStorage.getItem(`${sessionUuid}_id_head_front_url`)
+      const idBackUrl = localStorage.getItem(`${sessionUuid}_id_head_back_url`)
+      if (idFrontUrl) mediaUrls.idFront = idFrontUrl
+      if (idBackUrl) mediaUrls.idBack = idBackUrl
+
+      // 代理人身份證（如果有）
+      if (formData.has_agent) {
+        const agentIdFrontUrl = localStorage.getItem(`${sessionUuid}_id_proxy_front_url`)
+        const agentIdBackUrl = localStorage.getItem(`${sessionUuid}_id_proxy_back_url`)
+        if (agentIdFrontUrl) mediaUrls.agentIdFront = agentIdFrontUrl
+        if (agentIdBackUrl) mediaUrls.agentIdBack = agentIdBackUrl
+      }
+
+      // 銀行存摺
+      const bankUrl = localStorage.getItem(`${sessionUuid}_bank_book_url`)
+      if (bankUrl) mediaUrls.bankBook = bankUrl
+
+      // 簽名（如果有）
+      const signatureUrl = localStorage.getItem(`${sessionUuid}_signature_url`)
+      if (signatureUrl) mediaUrls.signature = signatureUrl
+
+      // 收集附加檔案（從 localStorage）
+      const additionalFiles: string[] = []
+      let fileIndex = 1
+      while (true) {
+        const url = localStorage.getItem(`${sessionUuid}_additional_file${fileIndex}_url`)
+        if (!url) break
+        additionalFiles.push(url)
+        fileIndex++
+      }
+
+      // 3. 構建聯絡電話陣列
+      const phones: any[] = []
+      if (formData.householdHeadPhone && householdData?.householdHead) {
+        phones.push({
+          owner: 'householdHead',
+          ownerName: householdData.householdHead.name,
+          number: formData.householdHeadPhone
+        })
+      }
+      if (formData.agentPhone && formData.has_agent) {
+        phones.push({
+          owner: 'agent',
+          ownerName: formData.agent_name,
+          number: formData.agentPhone
+        })
+      }
+
+      // 4. 構建 JSONB 資料結構
+      const applicationData = {
+        household: householdData ? {
+          header: householdData.header || {},
+          householdHead: householdData.householdHead || {},
+          members: householdData.members || []
+        } : null,
+        victim: {
+          name: formData.victim_name,
+          idNumber: formData.id_number,
+          address: formData.address
+        },
+        agent: formData.has_agent ? {
+          hasAgent: true,
+          name: formData.agent_name,
+          idNumber: formData.agent_id_number,
+          address: formData.agent_address
+        } : { hasAgent: false },
+        bank: {
+          code: formData.bank_code,
+          name: formData.bank_name || '',
+          branch: formData.bank_branch || '',
+          account: formData.bank_account,
+          accountName: formData.account_name || ''
+        },
+        contact: {
+          phones: phones.length > 0 ? phones : null
+        },
+        signature: signatureUrl || null,
+        media: mediaUrls,
+        additionalFiles: additionalFiles.length > 0 ? additionalFiles : null
+      }
+
+      console.log('📦 提交資料:', applicationData)
+
+      // 4. 插入資料庫（JSONB 格式）
+      const { data: insertData, error: insertError } = await supabase
         .from('disaster_applications')
         .insert([{
           user_id: user.id,
-          victim_name: formData.victim_name,
-          id_number: formData.id_number,
-          phone_number: formData.phone_number,
-          address: formData.address,
-          bank_code: formData.bank_code,
-          bank_name: formData.bank_name || null,
-          bank_branch: formData.bank_branch || null,
-          bank_account: formData.bank_account,
-          account_name: formData.account_name || null
+          application_data: applicationData,
+          status: 'submitted'
         }])
         .select()
         .single()
 
       if (insertError) throw insertError
 
-      const newApplicationId = applicationData.id
+      const newApplicationId = insertData.id
       setApplicationId(newApplicationId)
+      console.log('✅ 申請提交成功！ID:', newApplicationId)
 
-      // 3. 上傳所有檔案（使用 UUID v7 唯一檔名，保護個資隱私）
-      const updateData: any = {}
-
-      if (fileData.frontIdPhoto) {
-        const path = await uploadFileToStorage(fileData.frontIdPhoto, 'front_id', 'front')
-        updateData.front_id_photo = path
-      }
-
-      if (fileData.backIdPhoto) {
-        const path = await uploadFileToStorage(fileData.backIdPhoto, 'back_id', 'back')
-        updateData.back_id_photo = path
-      }
-
-      if (fileData.bankPhoto) {
-        const path = await uploadFileToStorage(fileData.bankPhoto, 'bank_account', 'bank')
-        updateData.bank_photo = path
-      }
-
-      // 簽名已移除，不再上傳簽名檔案
-
-      // 4. 更新資料庫記錄（如果有檔案上傳）
-      if (Object.keys(updateData).length > 0) {
-        const { error: updateError } = await supabase
-          .from('disaster_applications')
-          .update(updateData)
-          .eq('id', newApplicationId)
-
-        if (updateError) throw updateError
-      }
+      // 5. 清理 localStorage
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith(sessionUuid)) {
+          localStorage.removeItem(key)
+        }
+      })
 
       // 6. 完成
       setCurrentStep('completed')
@@ -241,6 +353,7 @@ export default function NewApplicationPage() {
       /^[0-9\-]{8,12}$/.test(formData.phone_number) &&
       formData.address.trim() &&
       formData.bank_code &&
+      /^\d{3}$/.test(formData.bank_code) && // 銀行代碼必須是 3 位數字
       formData.bank_account &&
       /^[0-9]{5,20}$/.test(formData.bank_account)
     )
@@ -443,12 +556,12 @@ export default function NewApplicationPage() {
               <div>
                 <h1 className="text-xl font-bold">{t('application.title')}</h1>
                 <p className="text-sm text-default-500">
-{t(`application.subStep${currentSubStep}`)} ({currentSubStep}/4) - {i18n.language === 'zh-TW' ? '第2步' : 'Step 2'}
+{t(`application.subStep${currentSubStep}`)} ({currentSubStep}/5) - {i18n.language === 'zh-TW' ? '第2步' : 'Step 2'}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Progress value={33 + (currentSubStep / 4) * 34} size="sm" className="w-24" color="success" aria-label={`進度 ${33 + (currentSubStep / 4) * 34}%`} />
+              <Progress value={33 + (currentSubStep / 5) * 34} size="sm" className="w-24" color="success" aria-label={`進度 ${33 + (currentSubStep / 5) * 34}%`} />
               <ThemeSwitcher />
               <LanguageSwitcher />
               <Button variant="ghost" onClick={() => router.push('/dashboard')}>返回</Button>
@@ -477,9 +590,9 @@ export default function NewApplicationPage() {
               <h1 className="text-lg font-bold">救災個資收集申請</h1>
               <div className="flex justify-between items-center">
                 <p className="text-sm text-default-500">{t(`application.subStep${currentSubStep}`)}</p>
-                <span className="text-xs text-default-400">{currentSubStep}/4</span>
+                <span className="text-xs text-default-400">{currentSubStep}/5</span>
               </div>
-              <Progress value={33 + (currentSubStep / 4) * 34} color="success" size="sm" aria-label={`進度 ${33 + (currentSubStep / 4) * 34}%`} />
+              <Progress value={33 + (currentSubStep / 5) * 34} color="success" size="sm" aria-label={`進度 ${33 + (currentSubStep / 5) * 34}%`} />
             </div>
           </div>
         </div>
@@ -487,13 +600,45 @@ export default function NewApplicationPage() {
         {/* Container */}
         <div className="flex-1 p-4 md:p-8 overflow-y-auto">
           <div className="max-w-4xl mx-auto">
-            {/* 子步驟 1: 身份證拍照與 OCR */}
-            {currentSubStep === 1 && (
-              <Card className="shadow-lg">
-                <CardHeader className="flex flex-col items-start space-y-2">
-                  <h2 className="text-lg font-bold">身份證拍照辨識</h2>
-                  <p className="text-sm text-default-500">請拍攝身份證正反面，系統將自動識別資料</p>
-                </CardHeader>
+            {/* 子步驟 1: 戶口名簿/戶籍謄本 */}
+            {currentSubStep === 1 && sessionUuid && (
+              <HouseholdOCRIntegration
+                sessionUuid={sessionUuid}
+                setIsProcessingOCR={setIsProcessingOCR}
+                setOCRMessage={setOCRMessage}
+                onDocumentsChange={(hasDocuments) => {
+                  setHasHouseholdData(hasDocuments)
+                  console.log('Household documents updated, hasDocuments:', hasDocuments)
+                }}
+                onScanStarted={() => {
+                  setHouseholdScanStarted(true)
+                  console.log('✓ 成員掃描已開始，下一步按鈕已啟用')
+                }}
+                onDataChange={(data) => {
+                  // 保存完整戶口名簿資料
+                  setHouseholdData(data)
+                  console.log('Household data updated:', data)
+
+                  // 從戶口名簿 OCR 資料自動填入基本資料
+                  if (data.householdHead) {
+                    setFormData(prev => ({
+                      ...prev,
+                      victim_name: data.householdHead.name || prev.victim_name,
+                      id_number: data.householdHead.idNumber || prev.id_number
+                    }))
+                  }
+                }}
+              />
+            )}
+
+            {/* 子步驟 2: 身份證拍照與 OCR */}
+            {currentSubStep === 2 && (
+              <div className="space-y-4">
+                <Card className="shadow-lg">
+                  <CardHeader className="flex flex-col items-start space-y-2">
+                    <h2 className="text-lg font-bold">戶長身份證拍照辨識</h2>
+                    <p className="text-sm text-default-500">請拍攝戶長身份證正反面，系統將自動識別資料</p>
+                  </CardHeader>
                 <CardBody className="space-y-6">
                   <div className="grid md:grid-cols-2 gap-6">
                     {/* 身份證正面 */}
@@ -663,12 +808,221 @@ export default function NewApplicationPage() {
                       </div>
                     </div>
                   </div>
+
+                  {/* 代理人選項 */}
+                  <div className="border-t pt-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.has_agent}
+                        onChange={(e) => {
+                          setFormData(prev => ({ ...prev, has_agent: e.target.checked }))
+                          // 清空代理人資料
+                          if (!e.target.checked) {
+                            setFormData(prev => ({
+                              ...prev,
+                              agent_name: '',
+                              agent_id_number: '',
+                              agent_address: ''
+                            }))
+                            setFileData(prev => ({
+                              ...prev,
+                              frontIdPhotoAgent: null,
+                              backIdPhotoAgent: null
+                            }))
+                          }
+                        }}
+                        className="w-4 h-4 text-primary bg-gray-100 border-gray-300 rounded focus:ring-primary focus:ring-2"
+                      />
+                      <span className="text-sm font-medium text-foreground">
+                        由代理人代為領取（需提供代理人身份證）
+                      </span>
+                    </label>
+                  </div>
                 </CardBody>
               </Card>
+
+              {/* 代理人身份證卡片 */}
+              {formData.has_agent && (
+                <Card className="shadow-lg border-2 border-primary">
+                  <CardHeader className="flex flex-col items-start space-y-2 bg-primary-50">
+                    <h2 className="text-lg font-bold text-primary">代理人身份證拍照辨識</h2>
+                    <p className="text-sm text-default-500">請拍攝代理人身份證正反面，系統將自動識別資料</p>
+                  </CardHeader>
+                  <CardBody className="space-y-6">
+                    <div className="grid md:grid-cols-2 gap-6">
+                      {/* 代理人身份證正面 */}
+                      <div className="space-y-4">
+                        <h3 className="text-md font-semibold text-primary">代理人身份證正面</h3>
+
+                        {/* 拍照/上傳區域 */}
+                        <div className="relative">
+                          <CameraCapture
+                            label="代理人身份證正面"
+                            onCapture={async (file) => {
+                              const imageUrl = URL.createObjectURL(file)
+                              setFormData(prev => ({ ...prev, front_id_photo_agent: imageUrl }))
+
+                              // 呼叫 OCR API
+                              try {
+                                setIsProcessingOCR(true)
+                                setOCRMessage('AI 正在辨識代理人身分證正面，請稍候...')
+
+                                const formDataApi = new FormData()
+                                formDataApi.append('image', file)
+                                formDataApi.append('type', 'front')
+
+                                const response = await fetch('/api/ocr', {
+                                  method: 'POST',
+                                  body: formDataApi
+                                })
+
+                                if (response.ok) {
+                                  const result = await response.json()
+                                  if (result.data) {
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      agent_name: result.data.name || prev.agent_name,
+                                      agent_id_number: result.data.idNumber || prev.agent_id_number
+                                    }))
+                                  }
+                                }
+                              } catch (error) {
+                                console.error('OCR failed:', error)
+                              } finally {
+                                setIsProcessingOCR(false)
+                              }
+                            }}
+                            currentImage={formData.front_id_photo_agent}
+                          />
+                        </div>
+
+                        {/* OCR 識別結果輸入框 */}
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-sm font-medium text-foreground mb-1">
+                              代理人姓名 <span className="text-danger">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={formData.agent_name}
+                              onChange={(e) => setFormData(prev => ({ ...prev, agent_name: e.target.value }))}
+                              aria-label="代理人姓名"
+                              placeholder="請輸入代理人姓名"
+                              className={`w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 ${
+                                formData.agent_name.trim()
+                                  ? 'border-success focus:border-success focus:ring-success/20'
+                                  : 'border-default-300 focus:border-primary focus:ring-primary/20'
+                              }`}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium text-foreground mb-1">
+                              代理人身分證字號 <span className="text-danger">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={formData.agent_id_number}
+                              aria-label="代理人身分證字號"
+                              onChange={(e) => {
+                                const value = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+                                if (value.length <= 10) {
+                                  setFormData(prev => ({ ...prev, agent_id_number: value }))
+                                }
+                              }}
+                              placeholder="A123456789"
+                              maxLength={10}
+                              className={`w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 ${
+                                /^[A-Z][0-9]{9}$/.test(formData.agent_id_number)
+                                  ? 'border-success focus:border-success focus:ring-success/20'
+                                  : 'border-default-300 focus:border-primary focus:ring-primary/20'
+                              }`}
+                            />
+                            {formData.agent_id_number && !/^[A-Z][0-9]{9}$/.test(formData.agent_id_number) && (
+                              <p className="text-xs text-danger mt-1">
+                                {i18n.language === 'zh-TW' ? '格式錯誤：需要1個英文字母 + 9個數字' : 'Invalid format: 1 letter + 9 digits required'}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 代理人身份證背面 */}
+                      <div className="space-y-4">
+                        <h3 className="text-md font-semibold text-primary">代理人身份證背面</h3>
+
+                        {/* 拍照/上傳區域 */}
+                        <div className="relative">
+                          <CameraCapture
+                            label="代理人身份證背面"
+                            onCapture={async (file) => {
+                              const imageUrl = URL.createObjectURL(file)
+                              setFormData(prev => ({ ...prev, back_id_photo_agent: imageUrl }))
+
+                              // 呼叫 OCR API
+                              try {
+                                setIsProcessingOCR(true)
+                                setOCRMessage('AI 正在辨識代理人身分證背面，請稍候...')
+
+                                const formDataApi = new FormData()
+                                formDataApi.append('image', file)
+                                formDataApi.append('type', 'back')
+
+                                const response = await fetch('/api/ocr', {
+                                  method: 'POST',
+                                  body: formDataApi
+                                })
+
+                                if (response.ok) {
+                                  const result = await response.json()
+                                  if (result.data) {
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      agent_address: result.data.address || prev.agent_address
+                                    }))
+                                  }
+                                }
+                              } catch (error) {
+                                console.error('OCR failed:', error)
+                              } finally {
+                                setIsProcessingOCR(false)
+                              }
+                            }}
+                            currentImage={formData.back_id_photo_agent}
+                          />
+                        </div>
+
+                        {/* OCR 識別結果輸入框 */}
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-sm font-medium text-foreground mb-1">
+                              代理人戶籍地址 <span className="text-danger">*</span>
+                            </label>
+                            <textarea
+                              value={formData.agent_address}
+                              onChange={(e) => setFormData(prev => ({ ...prev, agent_address: e.target.value }))}
+                              placeholder="請輸入代理人戶籍地址"
+                              aria-label="代理人戶籍地址"
+                              rows={3}
+                              className={`w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 resize-none ${
+                                formData.agent_address.trim()
+                                  ? 'border-success focus:border-success focus:ring-success/20'
+                                  : 'border-default-300 focus:border-primary focus:ring-primary/20'
+                              }`}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </CardBody>
+                </Card>
+              )}
+              </div>
             )}
 
-            {/* 子步驟 2: 銀行存摺拍照與資料填寫 */}
-            {currentSubStep === 2 && (
+            {/* 子步驟 3: 銀行存摺拍照與資料填寫 */}
+            {currentSubStep === 3 && (
               <Card className="shadow-lg">
                 <CardHeader className="flex flex-col items-start space-y-2">
                   <h2 className="text-lg font-bold">銀行存摺資料</h2>
@@ -701,7 +1055,11 @@ export default function NewApplicationPage() {
 
                           if (response.ok) {
                             const result = await response.json()
+                            console.log('🔍 OCR 原始結果:', result)
+
                             if (result.data) {
+                              console.log('📄 OCR data:', result.data)
+
                               // 自動填入識別的銀行資料
                               // 處理可能的欄位名稱變化
                               const bankName = result.data.銀行 || result.data.bank || result.data.bankName
@@ -709,16 +1067,61 @@ export default function NewApplicationPage() {
                               const accountName = result.data.戶名 || result.data.accountName || result.data.name
                               const accountNumber = result.data.銀行帳號 || result.data.帳號 || result.data.accountNumber || result.data.account
 
+                              console.log('💳 解析結果:', { bankName, branch, accountName, accountNumber })
+
                               // 如果識別到銀行名稱，嘗試找到對應的銀行代碼
                               if (bankName) {
-                                const bank = bankCodes.find(b => b.name.includes(bankName) || bankName.includes(b.name))
+                                console.log('🔎 搜尋銀行:', bankName)
+
+                                // 智能匹配邏輯
+                                let bank = bankCodes.find(b => b.name.includes(bankName) || bankName.includes(b.name))
+
+                                // 如果直接匹配失敗，嘗試更寬鬆的匹配
+                                if (!bank) {
+                                  // 移除常見後綴和替換常見縮寫
+                                  const cleanedName = bankName
+                                    .replace(/分行|分社|分會/g, '')
+                                    .replace(/信合|信合社/g, '信用合作社')
+                                    .replace(/一信|第一信/g, '第一信用合作社')
+                                    .replace(/二信|第二信/g, '第二信用合作社')
+                                    .replace(/三信|第三信/g, '第三信用合作社')
+
+                                  console.log('🔎 使用關鍵字搜尋:', cleanedName)
+
+                                  bank = bankCodes.find(b => {
+                                    return b.name.includes(cleanedName) || cleanedName.includes(b.name)
+                                  })
+                                }
+
+                                // 如果還是找不到，嘗試只用地區名稱匹配
+                                if (!bank && bankName.length >= 2) {
+                                  console.log('🔎 嘗試地區名稱匹配...')
+                                  // 提取地區名（前面的中文字）
+                                  const region = bankName.match(/^[\u4e00-\u9fff]+/)?.[0]
+                                  if (region && region.length >= 2) {
+                                    console.log('🔎 地區:', region)
+                                    bank = bankCodes.find(b =>
+                                      b.name.startsWith(region) &&
+                                      (b.type === 'credit_union' || bankName.includes('信'))
+                                    )
+                                  }
+                                }
+
+                                console.log('✅ 找到銀行:', bank)
+
                                 if (bank) {
                                   setFormData(prev => ({
                                     ...prev,
                                     bank_code: bank.code,
                                     bank_name: bank.name
                                   }))
+                                  setOCRMessage(`✅ 已自動識別：${bank.name}`)
+                                } else {
+                                  console.warn('⚠️  未找到匹配的銀行，bankName:', bankName)
+                                  setOCRMessage(`⚠️ 未能匹配銀行「${bankName}」，請手動選擇`)
                                 }
+                              } else {
+                                console.warn('⚠️  OCR 未識別到銀行名稱')
                               }
 
                               // 填入其他識別的資料
@@ -848,18 +1251,225 @@ export default function NewApplicationPage() {
               </Card>
             )}
 
-            {/* 子步驟 3: 確認所有資料 */}
-            {currentSubStep === 3 && (
+            {/* 子步驟 4: 確認所有資料 */}
+            {currentSubStep === 4 && (
               <Card className="shadow-lg">
                 <CardHeader className="flex flex-col items-start space-y-2">
                   <h2 className="text-lg font-bold">資料確認</h2>
                   <p className="text-sm text-default-500">請確認所有資料無誤後繼續</p>
                 </CardHeader>
                 <CardBody className="space-y-6">
-                  {/* 身份證資料確認 */}
+                  {/* 戶口名簿資料確認 */}
+                  {householdData && (
+                    <div className="bg-content2 rounded-lg p-6">
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-md font-semibold text-primary">戶口名簿資料</h3>
+                        <div className="text-xs text-default-500">
+                          📝 所有欄位可直接點擊修改
+                        </div>
+                      </div>
+
+                      {/* 基本資料（可編輯）*/}
+                      <div className="mb-6 pb-4 border-b border-default-200">
+                        <h4 className="text-sm font-semibold mb-3 text-default-700">📋 基本資料</h4>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-default-500 mb-1">戶號</label>
+                            <input
+                              type="text"
+                              value={householdData.header?.householdNumber || ''}
+                              onChange={(e) => setHouseholdData({
+                                ...householdData,
+                                header: { ...householdData.header, householdNumber: e.target.value }
+                              })}
+                              className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-default-500 mb-1">戶長統號</label>
+                            <input
+                              type="text"
+                              value={householdData.header?.householdHeadIdNumber || ''}
+                              onChange={(e) => setHouseholdData({
+                                ...householdData,
+                                header: { ...householdData.header, householdHeadIdNumber: e.target.value }
+                              })}
+                              className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-default-500 mb-1">戶別</label>
+                            <input
+                              type="text"
+                              value={householdData.header?.householdType || ''}
+                              onChange={(e) => setHouseholdData({
+                                ...householdData,
+                                header: { ...householdData.header, householdType: e.target.value }
+                              })}
+                              className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                            />
+                          </div>
+                          <div className="col-span-2">
+                            <label className="block text-xs text-default-500 mb-1">戶籍地址</label>
+                            <input
+                              type="text"
+                              value={householdData.header?.address || ''}
+                              onChange={(e) => setHouseholdData({
+                                ...householdData,
+                                header: { ...householdData.header, address: e.target.value }
+                              })}
+                              className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 戶長資料（可編輯）*/}
+                      <div className="mb-6 pb-4 border-b border-default-200">
+                        <h4 className="text-sm font-semibold mb-3 text-default-700">👤 戶長</h4>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-default-500 mb-1">姓名</label>
+                            <input
+                              type="text"
+                              value={householdData.householdHead?.name || ''}
+                              onChange={(e) => setHouseholdData({
+                                ...householdData,
+                                householdHead: { ...householdData.householdHead, name: e.target.value }
+                              })}
+                              className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-default-500 mb-1">性別</label>
+                            <input
+                              type="text"
+                              value={householdData.householdHead?.gender || ''}
+                              onChange={(e) => setHouseholdData({
+                                ...householdData,
+                                householdHead: { ...householdData.householdHead, gender: e.target.value }
+                              })}
+                              className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-default-500 mb-1">出生日期</label>
+                            <input
+                              type="text"
+                              value={householdData.householdHead?.birthDate || ''}
+                              onChange={(e) => setHouseholdData({
+                                ...householdData,
+                                householdHead: { ...householdData.householdHead, birthDate: e.target.value }
+                              })}
+                              className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-default-500 mb-1">身分證字號</label>
+                            <input
+                              type="text"
+                              value={householdData.householdHead?.idNumber || ''}
+                              onChange={(e) => setHouseholdData({
+                                ...householdData,
+                                householdHead: { ...householdData.householdHead, idNumber: e.target.value }
+                              })}
+                              className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 成員資料（可編輯）*/}
+                      {householdData.members && householdData.members.length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-semibold mb-3 text-default-700">
+                            👥 家族成員（共 {householdData.members.length} 位）
+                          </h4>
+                          <div className="space-y-4">
+                            {householdData.members.map((member: any, idx: number) => (
+                              <div key={member.id} className="bg-default-100 rounded-lg p-3">
+                                <div className="text-xs font-semibold text-default-600 mb-2">
+                                  成員 {idx + 1}
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="block text-xs text-default-500 mb-1">姓名</label>
+                                    <input
+                                      type="text"
+                                      value={member.name || ''}
+                                      onChange={(e) => {
+                                        const newMembers = [...householdData.members]
+                                        newMembers[idx] = { ...newMembers[idx], name: e.target.value }
+                                        setHouseholdData({ ...householdData, members: newMembers })
+                                      }}
+                                      className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs text-default-500 mb-1">性別</label>
+                                    <input
+                                      type="text"
+                                      value={member.gender || ''}
+                                      onChange={(e) => {
+                                        const newMembers = [...householdData.members]
+                                        newMembers[idx] = { ...newMembers[idx], gender: e.target.value }
+                                        setHouseholdData({ ...householdData, members: newMembers })
+                                      }}
+                                      className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs text-default-500 mb-1">出生日期</label>
+                                    <input
+                                      type="text"
+                                      value={member.birthDate || ''}
+                                      onChange={(e) => {
+                                        const newMembers = [...householdData.members]
+                                        newMembers[idx] = { ...newMembers[idx], birthDate: e.target.value }
+                                        setHouseholdData({ ...householdData, members: newMembers })
+                                      }}
+                                      className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs text-default-500 mb-1">身分證字號</label>
+                                    <input
+                                      type="text"
+                                      value={member.idNumber || ''}
+                                      onChange={(e) => {
+                                        const newMembers = [...householdData.members]
+                                        newMembers[idx] = { ...newMembers[idx], idNumber: e.target.value }
+                                        setHouseholdData({ ...householdData, members: newMembers })
+                                      }}
+                                      className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                                    />
+                                  </div>
+                                  <div className="col-span-2">
+                                    <label className="block text-xs text-default-500 mb-1">與戶長關係</label>
+                                    <input
+                                      type="text"
+                                      value={member.relationship || ''}
+                                      onChange={(e) => {
+                                        const newMembers = [...householdData.members]
+                                        newMembers[idx] = { ...newMembers[idx], relationship: e.target.value }
+                                        setHouseholdData({ ...householdData, members: newMembers })
+                                      }}
+                                      className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 受災者身份證資料確認 */}
                   <div className="bg-content2 rounded-lg p-6">
                     <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-md font-semibold text-primary">身份證資料</h3>
+                      <h3 className="text-md font-semibold text-primary">受災者身份證資料</h3>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -870,51 +1480,54 @@ export default function NewApplicationPage() {
                         修改
                       </Button>
                     </div>
-                    <div className="grid md:grid-cols-2 gap-4">
-                      {/* 身份證照片預覽 */}
-                      <div className="space-y-3">
-                        <h4 className="text-sm font-medium text-default-600">身份證照片</h4>
-                        <div className="flex gap-2">
-                          {formData.front_id_photo ? (
-                            <div className="relative w-24 h-16 border rounded overflow-hidden">
-                              <img src={formData.front_id_photo} alt="身份證正面" className="w-full h-full object-cover" />
-                              <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs px-1">正面</span>
-                            </div>
-                          ) : (
-                            <div className="w-24 h-16 border rounded flex items-center justify-center bg-default-100 text-default-400 text-xs">
-                              未提供
-                            </div>
-                          )}
-                          {formData.back_id_photo ? (
-                            <div className="relative w-24 h-16 border rounded overflow-hidden">
-                              <img src={formData.back_id_photo} alt="身份證背面" className="w-full h-full object-cover" />
-                              <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs px-1">背面</span>
-                            </div>
-                          ) : (
-                            <div className="w-24 h-16 border rounded flex items-center justify-center bg-default-100 text-default-400 text-xs">
-                              未提供
-                            </div>
-                          )}
-                        </div>
+                    {/* 身份資料 */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-default-500">姓名：</span>
+                        <span className="text-sm font-medium">{formData.victim_name || '未填寫'}</span>
                       </div>
-
-                      {/* 身份資料 */}
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-sm text-default-500">姓名：</span>
-                          <span className="text-sm font-medium">{formData.victim_name || '未填寫'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-sm text-default-500">身分證字號：</span>
-                          <span className="text-sm font-medium">{formData.id_number || '未填寫'}</span>
-                        </div>
-                        <div>
-                          <span className="text-sm text-default-500">戶籍地址：</span>
-                          <p className="text-sm font-medium mt-1">{formData.address || '未填寫'}</p>
-                        </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-default-500">身分證字號：</span>
+                        <span className="text-sm font-medium">{formData.id_number || '未填寫'}</span>
+                      </div>
+                      <div>
+                        <span className="text-sm text-default-500">戶籍地址：</span>
+                        <p className="text-sm font-medium mt-1">{formData.address || '未填寫'}</p>
                       </div>
                     </div>
                   </div>
+
+                  {/* 代理人身份證資料確認（如果有）*/}
+                  {formData.has_agent && (
+                    <div className="bg-content2 rounded-lg p-6">
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-md font-semibold text-primary">代理人身份證資料</h3>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          color="primary"
+                          onPress={() => setCurrentSubStep(1)}
+                          className="min-w-unit-20"
+                        >
+                          修改
+                        </Button>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-sm text-default-500">姓名：</span>
+                          <span className="text-sm font-medium">{formData.agent_name || '未填寫'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-default-500">身分證字號：</span>
+                          <span className="text-sm font-medium">{formData.agent_id_number || '未填寫'}</span>
+                        </div>
+                        <div>
+                          <span className="text-sm text-default-500">戶籍地址：</span>
+                          <p className="text-sm font-medium mt-1">{formData.agent_address || '未填寫'}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* 銀行資料確認 */}
                   <div className="bg-content2 rounded-lg p-6">
@@ -930,39 +1543,23 @@ export default function NewApplicationPage() {
                         修改
                       </Button>
                     </div>
-                    <div className="grid md:grid-cols-2 gap-4">
-                      {/* 存摺照片預覽 */}
-                      <div className="space-y-3">
-                        <h4 className="text-sm font-medium text-default-600">存摺照片</h4>
-                        {formData.bank_photo ? (
-                          <div className="relative w-32 h-24 border rounded overflow-hidden">
-                            <img src={formData.bank_photo} alt="銀行存摺" className="w-full h-full object-cover" />
-                          </div>
-                        ) : (
-                          <div className="w-32 h-24 border rounded flex items-center justify-center bg-default-100 text-default-400 text-xs">
-                            未提供
-                          </div>
-                        )}
+                    {/* 銀行資料 */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-default-500">銀行代碼：</span>
+                        <span className="text-sm font-medium">{formData.bank_code ? `${formData.bank_code} - ${formData.bank_name}` : '未填寫'}</span>
                       </div>
-
-                      {/* 銀行資料 */}
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-sm text-default-500">銀行代碼：</span>
-                          <span className="text-sm font-medium">{formData.bank_code ? `${formData.bank_code} - ${formData.bank_name}` : '未填寫'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-sm text-default-500">分行（分會）：</span>
-                          <span className="text-sm font-medium">{formData.bank_branch || '未填寫'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-sm text-default-500">銀行帳號：</span>
-                          <span className="text-sm font-medium">{formData.bank_account || '未填寫'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-sm text-default-500">戶名：</span>
-                          <span className="text-sm font-medium">{formData.account_name || '未填寫'}</span>
-                        </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-default-500">分行（分會）：</span>
+                        <span className="text-sm font-medium">{formData.bank_branch || '未填寫'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-default-500">銀行帳號：</span>
+                        <span className="text-sm font-medium">{formData.bank_account || '未填寫'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-default-500">戶名：</span>
+                        <span className="text-sm font-medium">{formData.account_name || '未填寫'}</span>
                       </div>
                     </div>
                   </div>
@@ -992,8 +1589,8 @@ export default function NewApplicationPage() {
               </Card>
             )}
 
-            {/* 子步驟 4: 聯絡方式選擇 */}
-            {currentSubStep === 4 && (
+            {/* 子步驟 5: 聯絡方式選擇 */}
+            {currentSubStep === 5 && (
               <Card className="shadow-lg">
                 <CardHeader className="flex flex-col items-start space-y-2">
                   <h2 className="text-lg font-bold">聯絡方式</h2>
@@ -1146,10 +1743,10 @@ export default function NewApplicationPage() {
             </Button>
 
             <Button
-              color={currentSubStep === 4 ? 'success' : 'primary'}
+              color={currentSubStep === 5 ? 'success' : 'primary'}
               size="lg"
               onClick={() => {
-                if (currentSubStep < 4) {
+                if (currentSubStep < 5) {
                   setCurrentSubStep(currentSubStep + 1)
                 } else {
                   // 進入步驟三：附加檔案上傳
@@ -1159,28 +1756,37 @@ export default function NewApplicationPage() {
               isLoading={isSubmitting}
               isDisabled={
                 isSubmitting ||
-                (currentSubStep === 1 && !(
+                // 子步驟 1: 戶口名簿驗證（必須點擊完成掃描）
+                (currentSubStep === 1 && !householdScanStarted) ||
+                // 子步驟 2: 身分證資料驗證（含代理人驗證）
+                (currentSubStep === 2 && !(
                   formData.victim_name.trim() &&
                   /^[A-Z][0-9]{9}$/.test(formData.id_number) &&
-                  formData.address.trim()
+                  formData.address.trim() &&
+                  // 如果有代理人，也需要驗證代理人資料
+                  (!formData.has_agent || (
+                    formData.agent_name.trim() &&
+                    /^[A-Z][0-9]{9}$/.test(formData.agent_id_number) &&
+                    formData.agent_address.trim()
+                  ))
                 )) ||
-                (currentSubStep === 2 && !(
+                // 子步驟 3: 銀行資料驗證
+                (currentSubStep === 3 && !(
                   formData.bank_code &&
                   formData.bank_branch.trim() &&
                   formData.bank_account &&
                   /^[0-9]{5,20}$/.test(formData.bank_account) &&
                   formData.account_name.trim()
                 )) ||
-                // 簽名現在是選填的，移除驗證
-                // (currentSubStep === 3 && !formData.signature) ||
-                (currentSubStep === 4 && (
+                // 子步驟 5: 聯絡方式驗證
+                (currentSubStep === 5 && (
                   !formData.contactOption || // 沒有選擇任何選項
                   (formData.contactOption === 'provide' && !formData.phone_number.trim())
                 ))
               }
               className="px-6 md:px-8 py-2 md:py-3"
             >
-              {isSubmitting ? t('application.submitting') : (currentSubStep === 4 ? '進入附加檔案上傳' : t('application.nextStep'))}
+              {isSubmitting ? t('application.submitting') : (currentSubStep === 5 ? '進入附加檔案上傳' : t('application.nextStep'))}
             </Button>
           </div>
         </div>

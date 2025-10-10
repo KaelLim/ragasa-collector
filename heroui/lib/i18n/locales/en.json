@@ -15,7 +15,11 @@
     "filter": "Filter",
     "clear": "Clear",
     "select": "Select",
-    "logout": "Logout"
+    "logout": "Logout",
+    "takePhoto": "Take Photo",
+    "uploadFile": "Upload File",
+    "remove": "Remove",
+    "reset": "Reset"
   },
   "auth": {
     "login": "Login",
@@ -37,6 +41,7 @@
     "defaultPassword": "Default Password: ",
     "defaultPasswordNote": "Please use this password to login after registration",
     "registrationSuccess": "Registration successful! Your default password is: 94800552",
+    "registrationSuccessWithConfirmation": "Registration successful! Please check your email and click the confirmation link to activate your account. After confirmation, login with default password: 94800552",
     "redirecting": "Redirecting...",
     "loginError": "Login failed: ",
     "registerError": "Registration failed: ",
@@ -86,10 +91,11 @@
     "step1": "Comfort Letter",
     "step2": "Consent Form",
     "step3": "Relief Fund Information",
-    "subStep1": "Basic Information",
-    "subStep2": "Document Photos",
-    "subStep3": "Electronic Signature",
-    "subStep4": "Confirm Submission",
+    "subStep1": "Household Registry",
+    "subStep2": "ID Card Recognition",
+    "subStep3": "Bank Account Information",
+    "subStep4": "Data Confirmation",
+    "subStep5": "Contact Preferences",
     "back": "Back",
     "backToConsent": "Back to Consent",
     "nextStep": "Next Step",
@@ -151,5 +157,33 @@
     "readAndContinue": "I have read it, continue",
     "agreeAndContinue": "Agree and Continue",
     "consentCheckbox": "I have read the personal data consent form in detail and agree to Tzu Chi Foundation collecting, processing and using my personal data for the above purposes"
+  },
+  "householdRegistration": {
+    "title": "Household Registry Upload",
+    "description": "Please upload Household Registry or Household Transcript (at least one)",
+    "selectType": "Select Document Type",
+    "documentType": "Document Type",
+    "householdRegistry": "Household Registry",
+    "householdTranscript": "Household Transcript",
+    "addDocument": "Add Document",
+    "uploadedDocuments": "Uploaded Documents",
+    "pleaseAddDocument": "Please add at least one household document",
+    "takePhoto": "Take Photo",
+    "uploadFile": "Choose File",
+    "remove": "Remove"
+  },
+  "pdfSegmenter": {
+    "title": "PDF Segmentation Upload",
+    "description": "Upload PDF documents, system will automatically split each page into 5 segments for recognition",
+    "selectPDF": "Select PDF File",
+    "totalPages": "Total Pages",
+    "processed": "Processed",
+    "processing": "Processing...",
+    "addPage": "Add Page",
+    "page": "Page",
+    "segments": "Segments",
+    "processedPages": "Processed Pages",
+    "allPagesProcessed": "All pages processed!",
+    "maxPagesReached": "Maximum pages limit reached"
   }
 }

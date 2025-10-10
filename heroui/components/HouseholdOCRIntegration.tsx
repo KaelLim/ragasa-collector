@@ -15,17 +15,22 @@ import { segmentHouseholdImage, getSegmentBlob, type ImageSegment } from '@/util
 import CameraCapture from './CameraCapture'
 import LayoutPreview from './LayoutPreview'
 import { getLayoutAnalyzer, type LayoutRegion } from '@/lib/layout-analyzer'
+import { uploadToTemp, downloadFromStorage, type FileType } from '@/lib/storage-helpers'
 
 interface HouseholdOCRIntegrationProps {
+  sessionUuid: string  // 表單會話 UUID7
   onDataChange?: (data: HouseholdDataJSON) => void
   onDocumentsChange?: (hasDocuments: boolean) => void
+  onScanStarted?: () => void  // 點擊「完成掃描」時立即調用
   setIsProcessingOCR?: (isProcessing: boolean) => void
   setOCRMessage?: (message: string) => void
 }
 
 export default function HouseholdOCRIntegration({
+  sessionUuid,
   onDataChange,
   onDocumentsChange,
+  onScanStarted,
   setIsProcessingOCR,
   setOCRMessage
 }: HouseholdOCRIntegrationProps) {
@@ -127,14 +132,19 @@ export default function HouseholdOCRIntegration({
   }
 
   /**
-   * 開始 OCR 掃描（新業務邏輯：先完整切割，保存 Base64，需要時再調用）
+   * 開始 OCR 掃描（使用 localStorage 原檔）
+   * @param file - 原始檔案（從 localStorage 讀取）
    */
   const handleStartOCRWithFile = async (file: File) => {
     try {
       setIsProcessingOCR?.(true)
       setOCRMessage?.('正在切割圖片...')
 
-      // 步驟 1: 完整切割圖片並保存為 Base64
+      console.log('🔍 OCR 檔案檢查:')
+      console.log('  - 檔案大小:', file.size, 'bytes')
+      console.log('  - 檔案類型:', file.type)
+
+      // 步驟 1: 完整切割圖片並保存為 Base64（使用原檔）
       console.log('📐 開始切割戶口名簿圖片（保存為 Base64）')
       const segments = await segmentHouseholdImage(file)
       console.log(`✅ 切割完成，已保存 ${segments.length} 個區域為 Base64`)
@@ -205,23 +215,40 @@ export default function HouseholdOCRIntegration({
   const handleProcessAllMembers = async () => {
     if (!uploadedImage) return
 
+    // 立即通知父組件：已開始掃描，可以進入下一步
+    onScanStarted?.()
+    console.log('🚀 成員掃描已開始（背景處理）')
+
     try {
       setIsProcessingMembers(true)
       setOCRMessage?.('正在處理所有頁面的成員資料...')
 
-      // 收集所有頁面
-      const allPages = [uploadedImage, ...householdPages]
-      console.log(`📚 開始處理 ${allPages.length} 頁戶口名簿`)
+      // 收集所有頁面（從 localStorage 讀取原檔）
+      const totalPages = householdPages.length + 1
+      console.log(`📚 開始處理 ${totalPages} 頁戶口名簿（從 localStorage 讀取原檔）`)
 
-      const allMembers: any[] = []
+      const membersWithPage: any[] = []
+      let memberIndex = 0
 
-      // 逐頁進行完整圖片 OCR
-      for (let pageIndex = 0; pageIndex < allPages.length; pageIndex++) {
-        const page = allPages[pageIndex]
-        console.log(`📄 處理第 ${pageIndex + 1} 頁...`)
+      // 逐頁進行完整圖片 OCR（從 Storage 下載原檔）
+      for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+        const pageNum = pageIndex + 1
+        const storageUrlKey = `${sessionUuid}_household_page${pageNum}_url`
+
+        console.log(`📄 處理第 ${pageNum} 頁（從 Storage 下載原檔）...`)
+
+        // 從 Storage 下載原檔
+        const storageUrl = localStorage.getItem(storageUrlKey)
+        if (!storageUrl) {
+          console.error(`❌ 找不到第 ${pageNum} 頁的 Storage URL`)
+          continue
+        }
+
+        const originalFile = await downloadFromStorage(storageUrl, `household-page${pageNum}.jpg`)
+        console.log(`  原檔大小: ${originalFile.size} bytes`)
 
         const formData = new FormData()
-        formData.append('image', page, `page-${pageIndex + 1}.jpg`)
+        formData.append('image', originalFile, `page-${pageNum}.jpg`)
         formData.append('type', 'household')
         formData.append('segmentIndex', '0') // 0 = 完整頁面 OCR
 
@@ -236,61 +263,32 @@ export default function HouseholdOCRIntegration({
         }
 
         const result = await response.json()
+        console.log(`📋 第 ${pageIndex + 1} 頁 OCR 結果:`, result.data)
 
         if (result.success && result.data) {
           // 第一頁：跳過戶長（已處理），只取成員
-          if (pageIndex === 0 && result.data.members) {
-            allMembers.push(...result.data.members)
-            console.log(`✅ 第 1 頁：提取 ${result.data.members.length} 位成員`)
-          }
-          // 其他頁：全部成員都加入
-          else if (result.data.householdHead || result.data.members) {
-            if (result.data.householdHead) {
-              allMembers.push(result.data.householdHead)
-            }
-            if (result.data.members) {
-              allMembers.push(...result.data.members)
-            }
-            const count = (result.data.householdHead ? 1 : 0) + (result.data.members?.length || 0)
-            console.log(`✅ 第 ${pageIndex + 1} 頁：提取 ${count} 位成員`)
-          }
+          const pageMembers = pageIndex === 0 ? result.data.members :
+            [...(result.data.householdHead ? [result.data.householdHead] : []), ...(result.data.members || [])]
+
+          pageMembers?.forEach((member: any) => {
+            membersWithPage.push({
+              id: `member-${memberIndex + 1}`,
+              name: member.name || '',
+              gender: member.gender || '',
+              birthDate: member.birthDate || '',
+              idNumber: member.idNumber || '',
+              relationship: member.relationship || '',
+              pageNumber: pageIndex + 1 // 記錄頁碼
+            })
+            memberIndex++
+          })
+
+          console.log(`✅ 第 ${pageIndex + 1} 頁：提取 ${pageMembers?.length || 0} 位成員`)
         }
       }
 
-      // 更新成員資料（標記每位成員來自哪一頁）
-      if (householdData && allMembers.length > 0) {
-        let memberIndex = 0
-        const membersWithPage: any[] = []
-
-        // 重新處理，記錄頁碼
-        for (let pageIndex = 0; pageIndex < allPages.length; pageIndex++) {
-          const page = allPages[pageIndex]
-          const formData = new FormData()
-          formData.append('image', page)
-          formData.append('type', 'household')
-          formData.append('segmentIndex', '0')
-
-          const response = await fetch('/api/ocr', { method: 'POST', body: formData })
-          const result = await response.json()
-
-          if (result.success && result.data) {
-            const pageMembers = pageIndex === 0 ? result.data.members :
-              [...(result.data.householdHead ? [result.data.householdHead] : []), ...(result.data.members || [])]
-
-            pageMembers?.forEach((member: any) => {
-              membersWithPage.push({
-                id: `member-${memberIndex + 1}`,
-                name: member.name || '',
-                gender: member.gender || '',
-                birthDate: member.birthDate || '',
-                idNumber: member.idNumber || '',
-                relationship: member.relationship || '',
-                pageNumber: pageIndex + 1 // 記錄頁碼
-              })
-              memberIndex++
-            })
-          }
-        }
+      // 更新成員資料
+      if (householdData && membersWithPage.length > 0) {
 
         const updatedData: HouseholdDataJSON = {
           ...householdData,
@@ -301,8 +299,7 @@ export default function HouseholdOCRIntegration({
         onDataChange?.(updatedData)
         setMembersCompleted(true)
 
-        console.log(`✅ 成員資料處理完成！共 ${membersWithPage.length} 位成員`)
-        alert(`✅ 成員資料辨識完成！\n共辨識到 ${membersWithPage.length} 位成員`)
+        console.log(`✅ 成員資料處理完成！共 ${membersWithPage.length} 位成員（背景處理）`)
       }
 
     } catch (error) {
@@ -496,13 +493,45 @@ export default function HouseholdOCRIntegration({
             {!householdData && (
               <CameraCapture
                 label="戶口名簿"
-                onCapture={async (file) => {
-                  // 儲存上傳的圖片
-                  setUploadedImage(file)
-                  setImagePreview(URL.createObjectURL(file))
+                onOriginalFileSelected={async (originalFile) => {
+                  // 上傳原檔到 Supabase Storage
+                  const pageNum = householdPages.length + 1
+                  console.log(`📤 上傳原檔到 Storage（${originalFile.size} bytes）...`)
 
-                  // 自動開始 OCR
-                  await handleStartOCRWithFile(file)
+                  try {
+                    const { url } = await uploadToTemp(originalFile, sessionUuid, 'household', pageNum)
+                    console.log(`✅ 原檔已上傳: ${url}`)
+
+                    // 保存 URL 供後續 OCR 使用
+                    const storageKey = `${sessionUuid}_household_page${pageNum}_url`
+                    localStorage.setItem(storageKey, url)
+                  } catch (error) {
+                    console.error('❌ Storage 上傳失敗:', error)
+                  }
+                }}
+                onCapture={async (editedFile) => {
+                  try {
+                    const pageNum = householdPages.length + 1
+                    const storageUrlKey = `${sessionUuid}_household_page${pageNum}_url`
+
+                    // 預覽用（使用編輯後的檔案）
+                    setUploadedImage(editedFile)
+                    setImagePreview(URL.createObjectURL(editedFile))
+
+                    // 從 Storage 下載原檔進行 OCR
+                    const storageUrl = localStorage.getItem(storageUrlKey)
+                    if (storageUrl) {
+                      console.log(`📥 從 Storage 下載原檔: ${storageUrl}`)
+                      const originalFile = await downloadFromStorage(storageUrl, `household-page${pageNum}.jpg`)
+                      console.log(`✅ 原檔下載完成: ${originalFile.size} bytes`)
+                      await handleStartOCRWithFile(originalFile)
+                    } else {
+                      throw new Error('找不到 Storage URL')
+                    }
+                  } catch (error) {
+                    console.error('❌ 處理失敗:', error)
+                    alert('檔案處理失敗，請重試')
+                  }
                 }}
                 currentImage={imagePreview}
               />
@@ -982,21 +1011,161 @@ export default function HouseholdOCRIntegration({
                 <div className="border-b pb-4">
                   <h4 className="text-md font-semibold mb-3 text-primary">👤 戶長資料</h4>
                   <div className="grid grid-cols-2 gap-3">
-                    {/* 戶長欄位... (繼續) */}
+                    <div>
+                      <label className="block text-xs text-default-500 mb-1">姓名</label>
+                      <input
+                        type="text"
+                        value={householdData.householdHead.name}
+                        onChange={(e) => {
+                          const newData: HouseholdDataJSON = {
+                            ...householdData,
+                            householdHead: { ...householdData.householdHead, name: e.target.value }
+                          }
+                          setHouseholdData(newData)
+                          onDataChange?.(newData)
+                        }}
+                        className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-default-500 mb-1">性別</label>
+                      <input
+                        type="text"
+                        value={householdData.householdHead.gender}
+                        onChange={(e) => {
+                          const newData: HouseholdDataJSON = {
+                            ...householdData,
+                            householdHead: { ...householdData.householdHead, gender: e.target.value }
+                          }
+                          setHouseholdData(newData)
+                          onDataChange?.(newData)
+                        }}
+                        className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-default-500 mb-1">出生日期</label>
+                      <input
+                        type="text"
+                        value={householdData.householdHead.birthDate}
+                        onChange={(e) => {
+                          const newData: HouseholdDataJSON = {
+                            ...householdData,
+                            householdHead: { ...householdData.householdHead, birthDate: e.target.value }
+                          }
+                          setHouseholdData(newData)
+                          onDataChange?.(newData)
+                        }}
+                        className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-default-500 mb-1">身分證字號</label>
+                      <input
+                        type="text"
+                        value={householdData.householdHead.idNumber}
+                        onChange={(e) => {
+                          const newData: HouseholdDataJSON = {
+                            ...householdData,
+                            householdHead: { ...householdData.householdHead, idNumber: e.target.value }
+                          }
+                          setHouseholdData(newData)
+                          onDataChange?.(newData)
+                        }}
+                        className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                      />
+                    </div>
                   </div>
                 </div>
 
                 {/* 第一頁成員 */}
-                {householdData.members.filter((m: any) => m.pageNumber === 1).map((member: any, idx: number) => (
-                  <div key={member.id} className="border-b pb-4">
-                    <h4 className="text-md font-semibold mb-3 text-default-700">
-                      👥 成員 {idx + 1}
-                    </h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      {/* 成員欄位... (稍後添加) */}
+                {householdData.members.filter((m: any) => m.pageNumber === 1).map((member: any, idx: number) => {
+                  const memberIdx = householdData.members.findIndex((m: any) => m.id === member.id)
+                  return (
+                    <div key={member.id} className="border-b pb-4">
+                      <h4 className="text-md font-semibold mb-3 text-default-700">
+                        👥 成員 {idx + 1} - {member.relationship || ''}
+                      </h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs text-default-500 mb-1">姓名</label>
+                          <input
+                            type="text"
+                            value={member.name}
+                            onChange={(e) => {
+                              const newMembers = [...householdData.members]
+                              newMembers[memberIdx] = { ...newMembers[memberIdx], name: e.target.value }
+                              const newData: HouseholdDataJSON = { ...householdData, members: newMembers }
+                              setHouseholdData(newData)
+                              onDataChange?.(newData)
+                            }}
+                            className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-default-500 mb-1">性別</label>
+                          <input
+                            type="text"
+                            value={member.gender}
+                            onChange={(e) => {
+                              const newMembers = [...householdData.members]
+                              newMembers[memberIdx] = { ...newMembers[memberIdx], gender: e.target.value }
+                              const newData: HouseholdDataJSON = { ...householdData, members: newMembers }
+                              setHouseholdData(newData)
+                              onDataChange?.(newData)
+                            }}
+                            className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-default-500 mb-1">出生日期</label>
+                          <input
+                            type="text"
+                            value={member.birthDate}
+                            onChange={(e) => {
+                              const newMembers = [...householdData.members]
+                              newMembers[memberIdx] = { ...newMembers[memberIdx], birthDate: e.target.value }
+                              const newData: HouseholdDataJSON = { ...householdData, members: newMembers }
+                              setHouseholdData(newData)
+                              onDataChange?.(newData)
+                            }}
+                            className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-default-500 mb-1">身分證字號</label>
+                          <input
+                            type="text"
+                            value={member.idNumber}
+                            onChange={(e) => {
+                              const newMembers = [...householdData.members]
+                              newMembers[memberIdx] = { ...newMembers[memberIdx], idNumber: e.target.value }
+                              const newData: HouseholdDataJSON = { ...householdData, members: newMembers }
+                              setHouseholdData(newData)
+                              onDataChange?.(newData)
+                            }}
+                            className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="block text-xs text-default-500 mb-1">與戶長關係</label>
+                          <input
+                            type="text"
+                            value={member.relationship}
+                            onChange={(e) => {
+                              const newMembers = [...householdData.members]
+                              newMembers[memberIdx] = { ...newMembers[memberIdx], relationship: e.target.value }
+                              const newData: HouseholdDataJSON = { ...householdData, members: newMembers }
+                              setHouseholdData(newData)
+                              onDataChange?.(newData)
+                            }}
+                            className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                          />
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
 
@@ -1008,16 +1177,93 @@ export default function HouseholdOCRIntegration({
                 </h4>
                 {householdData.members
                   .filter((m: any) => m.pageNumber === currentViewPage + 1)
-                  .map((member: any, idx: number) => (
-                    <div key={member.id} className="border-b pb-4">
-                      <h5 className="text-md font-semibold mb-3 text-default-700">
-                        👥 成員 {idx + 1}
-                      </h5>
-                      <div className="grid grid-cols-2 gap-3">
-                        {/* 成員欄位... (稍後添加) */}
+                  .map((member: any, idx: number) => {
+                    const memberIdx = householdData.members.findIndex((m: any) => m.id === member.id)
+                    return (
+                      <div key={member.id} className="border-b pb-4">
+                        <h5 className="text-md font-semibold mb-3 text-default-700">
+                          👥 成員 {idx + 1} - {member.relationship || ''}
+                        </h5>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-default-500 mb-1">姓名</label>
+                            <input
+                              type="text"
+                              value={member.name}
+                              onChange={(e) => {
+                                const newMembers = [...householdData.members]
+                                newMembers[memberIdx] = { ...newMembers[memberIdx], name: e.target.value }
+                                const newData: HouseholdDataJSON = { ...householdData, members: newMembers }
+                                setHouseholdData(newData)
+                                onDataChange?.(newData)
+                              }}
+                              className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-default-500 mb-1">性別</label>
+                            <input
+                              type="text"
+                              value={member.gender}
+                              onChange={(e) => {
+                                const newMembers = [...householdData.members]
+                                newMembers[memberIdx] = { ...newMembers[memberIdx], gender: e.target.value }
+                                const newData: HouseholdDataJSON = { ...householdData, members: newMembers }
+                                setHouseholdData(newData)
+                                onDataChange?.(newData)
+                              }}
+                              className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-default-500 mb-1">出生日期</label>
+                            <input
+                              type="text"
+                              value={member.birthDate}
+                              onChange={(e) => {
+                                const newMembers = [...householdData.members]
+                                newMembers[memberIdx] = { ...newMembers[memberIdx], birthDate: e.target.value }
+                                const newData: HouseholdDataJSON = { ...householdData, members: newMembers }
+                                setHouseholdData(newData)
+                                onDataChange?.(newData)
+                              }}
+                              className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-default-500 mb-1">身分證字號</label>
+                            <input
+                              type="text"
+                              value={member.idNumber}
+                              onChange={(e) => {
+                                const newMembers = [...householdData.members]
+                                newMembers[memberIdx] = { ...newMembers[memberIdx], idNumber: e.target.value }
+                                const newData: HouseholdDataJSON = { ...householdData, members: newMembers }
+                                setHouseholdData(newData)
+                                onDataChange?.(newData)
+                              }}
+                              className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                            />
+                          </div>
+                          <div className="col-span-2">
+                            <label className="block text-xs text-default-500 mb-1">與戶長關係</label>
+                            <input
+                              type="text"
+                              value={member.relationship}
+                              onChange={(e) => {
+                                const newMembers = [...householdData.members]
+                                newMembers[memberIdx] = { ...newMembers[memberIdx], relationship: e.target.value }
+                                const newData: HouseholdDataJSON = { ...householdData, members: newMembers }
+                                setHouseholdData(newData)
+                                onDataChange?.(newData)
+                              }}
+                              className="w-full px-2 py-1 text-sm border border-default-300 rounded bg-content1"
+                            />
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
               </div>
             )}
           </CardBody>
@@ -1142,9 +1388,33 @@ export default function HouseholdOCRIntegration({
               {/* 上傳下一頁 */}
               <CameraCapture
                 label={`+ 掃描第 ${householdPages.length + 2} 頁`}
-                onCapture={async (file) => {
-                  console.log(`📄 已上傳第 ${householdPages.length + 2} 頁戶口名簿`)
-                  setHouseholdPages([...householdPages, file])
+                onOriginalFileSelected={async (originalFile) => {
+                  // 上傳原檔到 Storage
+                  const pageNum = householdPages.length + 2
+                  console.log(`📤 第 ${pageNum} 頁原檔上傳到 Storage（${originalFile.size} bytes）...`)
+
+                  try {
+                    const { url } = await uploadToTemp(originalFile, sessionUuid, 'household', pageNum)
+                    console.log(`✅ 第 ${pageNum} 頁原檔已上傳: ${url}`)
+
+                    // 保存 URL
+                    const storageUrlKey = `${sessionUuid}_household_page${pageNum}_url`
+                    localStorage.setItem(storageUrlKey, url)
+                  } catch (error) {
+                    console.error('❌ Storage 上傳失敗:', error)
+                  }
+                }}
+                onCapture={async (editedFile) => {
+                  try {
+                    const pageNum = householdPages.length + 2
+
+                    // 保存編輯後的檔案（用於預覽）
+                    setHouseholdPages([...householdPages, editedFile])
+                    console.log(`✅ 第 ${pageNum} 頁已保存`)
+                  } catch (error) {
+                    console.error('❌ 處理失敗:', error)
+                    alert(`第 ${pageNum} 頁處理失敗`)
+                  }
                 }}
                 currentImage={null}
               />

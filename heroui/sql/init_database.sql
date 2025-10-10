@@ -1,0 +1,429 @@
+-- ========================================
+-- 慈濟救災系統 - 完整資料庫初始化腳本
+-- 包含 Schema 定義 + 財金公司官方銀行代碼
+-- ========================================
+-- 執行方式（在私有雲 Supabase 容器中）:
+--   docker exec -i supabase-db psql -U postgres < init_database.sql
+-- ========================================
+
+-- 1. 創建 bank_codes 表
+CREATE TABLE IF NOT EXISTS public.bank_codes (
+  id SERIAL PRIMARY KEY,
+  code VARCHAR(3) NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  type VARCHAR(20) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 創建複合唯一索引
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bank_codes_code_name_unique ON bank_codes(code, name);
+
+-- 2. 創建 validate_bank_code 函數
+CREATE OR REPLACE FUNCTION validate_bank_code(code_value VARCHAR)
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM bank_codes
+    WHERE code = code_value
+  );
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+-- 3. 創建 disaster_applications 表
+CREATE TABLE IF NOT EXISTS public.disaster_applications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  victim_name VARCHAR(50) NOT NULL,
+  id_number VARCHAR(10) NOT NULL,
+  phone_number VARCHAR(20) NOT NULL,
+  address TEXT NOT NULL,
+  bank_code VARCHAR(3) NOT NULL,
+  bank_name VARCHAR(100),
+  bank_branch VARCHAR(100),
+  bank_account VARCHAR(20) NOT NULL,
+  account_name VARCHAR(50),
+  front_id_photo VARCHAR(255),
+  back_id_photo VARCHAR(255),
+  bank_photo VARCHAR(255),
+  household_registry_photo VARCHAR(255),
+  household_transcript_photo VARCHAR(255),
+  status VARCHAR(20) DEFAULT 'submitted',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. 添加約束
+DO $$ BEGIN
+  ALTER TABLE disaster_applications ADD CONSTRAINT check_status
+  CHECK (status IN ('submitted', 'reviewed', 'approved', 'rejected'));
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE disaster_applications ADD CONSTRAINT check_id_number_format
+  CHECK (LENGTH(id_number) = 10 AND id_number ~ '^[A-Z][0-9]{9}$');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE disaster_applications ADD CONSTRAINT check_phone_number_format
+  CHECK (phone_number ~ '^[0-9#\-\+\(\)\s]+$');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+-- 5. 創建索引
+CREATE INDEX IF NOT EXISTS idx_disaster_applications_user_id ON disaster_applications(user_id);
+CREATE INDEX IF NOT EXISTS idx_disaster_applications_status ON disaster_applications(status);
+CREATE INDEX IF NOT EXISTS idx_disaster_applications_created_at ON disaster_applications(created_at);
+CREATE INDEX IF NOT EXISTS idx_disaster_applications_id_number ON disaster_applications(id_number);
+CREATE INDEX IF NOT EXISTS idx_disaster_applications_bank_code ON disaster_applications(bank_code);
+
+-- 6. 創建更新時間函數和觸發器
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS update_disaster_applications_updated_at ON disaster_applications;
+CREATE TRIGGER update_disaster_applications_updated_at
+    BEFORE UPDATE ON disaster_applications
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- 7. 啟用 RLS
+ALTER TABLE bank_codes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE disaster_applications ENABLE ROW LEVEL SECURITY;
+
+-- 8. 創建 RLS 政策
+DROP POLICY IF EXISTS "bank_codes_read_policy" ON bank_codes;
+CREATE POLICY "bank_codes_read_policy"
+ON bank_codes FOR SELECT
+USING (true);
+
+DROP POLICY IF EXISTS "disaster_applications_insert_policy" ON disaster_applications;
+CREATE POLICY "disaster_applications_insert_policy"
+ON disaster_applications FOR INSERT
+WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "disaster_applications_read_policy" ON disaster_applications;
+CREATE POLICY "disaster_applications_read_policy"
+ON disaster_applications FOR SELECT
+USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "disaster_applications_update_policy" ON disaster_applications;
+CREATE POLICY "disaster_applications_update_policy"
+ON disaster_applications FOR UPDATE
+USING (auth.uid() = user_id);
+
+-- 9. 插入銀行代碼資料（來自財金公司 twd.txt）
+-- 清空現有資料
+TRUNCATE TABLE bank_codes RESTART IDENTITY CASCADE;
+
+-- 銀行代碼資料（來自財金公司 twd.txt）
+-- 資料來源: https://www.fisc.com.tw/tc/download/twd.txt
+-- 總計: 295 家金融機構
+
+INSERT INTO public.bank_codes (code, name, type) VALUES
+  ('600', '農金資訊股份有限公司', 'bank'),
+  ('952', '財團法人農漁會南區資訊中心', 'farmers_association'),
+  ('000', '中央銀行國庫局', 'bank'),
+  ('004', '臺灣銀行', 'bank'),
+  ('005', '臺灣土地銀行', 'bank'),
+  ('006', '合作金庫商業銀行', 'bank'),
+  ('007', '第一商業銀行', 'bank'),
+  ('008', '華南商業銀行', 'bank'),
+  ('009', '彰化商業銀行', 'bank'),
+  ('011', '上海商業儲蓄銀行', 'bank'),
+  ('012', '台北富邦商業銀行', 'bank'),
+  ('013', '國泰世華商業銀行', 'bank'),
+  ('016', '高雄銀行', 'bank'),
+  ('017', '兆豐國際商業銀行', 'bank'),
+  ('018', '全國農業金庫', 'bank'),
+  ('021', '花旗（台灣）商業銀行', 'bank'),
+  ('048', '王道商業銀行', 'bank'),
+  ('050', '臺灣中小企業銀行', 'bank'),
+  ('052', '渣打國際商業銀行', 'bank'),
+  ('053', '台中商業銀行', 'bank'),
+  ('054', '京城商業銀行', 'bank'),
+  ('081', '匯豐（台灣）商業銀行', 'bank'),
+  ('101', '瑞興商業銀行', 'bank'),
+  ('102', '華泰商業銀行', 'bank'),
+  ('103', '臺灣新光商業銀行', 'bank'),
+  ('108', '陽信商業銀行', 'bank'),
+  ('118', '板信商業銀行', 'bank'),
+  ('147', '三信商業銀行', 'bank'),
+  ('803', '聯邦商業銀行', 'bank'),
+  ('805', '遠東國際商業銀行', 'bank'),
+  ('806', '元大商業銀行', 'bank'),
+  ('807', '永豐商業銀行', 'bank'),
+  ('808', '玉山商業銀行', 'bank'),
+  ('809', '凱基商業銀行', 'bank'),
+  ('810', '星展（台灣）商業銀行', 'bank'),
+  ('812', '台新國際商業銀行', 'bank'),
+  ('816', '安泰商業銀行', 'bank'),
+  ('822', '中國信託商業銀行', 'bank'),
+  ('823', '將來商業銀行', 'bank'),
+  ('824', '連線商業銀行', 'bank'),
+  ('826', '樂天國際商業銀行', 'bank'),
+  ('114', '基隆第一信用合作社', 'credit_union'),
+  ('115', '基隆市第二信用合作社', 'credit_union'),
+  ('119', '淡水第一信用合作社', 'credit_union'),
+  ('130', '新竹第一信用合作社', 'credit_union'),
+  ('132', '新竹第三信用合作社', 'credit_union'),
+  ('146', '台中市第二信用合作社', 'credit_union'),
+  ('162', '彰化第六信用合作社', 'credit_union'),
+  ('204', '高雄市第三信用合作社', 'credit_union'),
+  ('215', '花蓮第一信用合作社', 'credit_union'),
+  ('216', '花蓮第二信用合作社', 'credit_union'),
+  ('104', '台北市第五信用合作社', 'credit_union'),
+  ('120', '新北市淡水信用合作社', 'credit_union'),
+  ('124', '宜蘭信用合作社', 'credit_union'),
+  ('127', '桃園信用合作社', 'credit_union'),
+  ('158', '彰化第一信用合作社', 'credit_union'),
+  ('161', '彰化第五信用合作社', 'credit_union'),
+  ('163', '彰化第十信用合作社', 'credit_union'),
+  ('165', '彰化縣鹿港信用合作社', 'credit_union'),
+  ('178', '嘉義市第三信用合作社', 'credit_union'),
+  ('188', '台南第三信用合作社', 'credit_union'),
+  ('222', '澎湖縣第一信用合作社', 'credit_union'),
+  ('223', '澎湖第二信用合作社', 'credit_union'),
+  ('224', '金門縣信用合作社', 'credit_union'),
+  ('501', '宜蘭縣蘇澳區漁會（農金資訊所屬會員）', 'farmers_association'),
+  ('502', '宜蘭縣頭城區漁會（農金資訊所屬會員）', 'farmers_association'),
+  ('506', '桃園區漁會（農金資訊所屬會員）', 'farmers_association'),
+  ('507', '新竹區漁會（農金資訊所屬會員）', 'farmers_association'),
+  ('508', '通苑區漁會（農金資訊所屬會員）', 'farmers_association'),
+  ('510', '南龍區漁會（農金資訊所屬會員）', 'farmers_association'),
+  ('511', '彰化區漁會（農金資訊所屬會員）', 'farmers_association'),
+  ('513', '新北市瑞芳區漁會（農金資訊所屬會員）', 'farmers_association'),
+  ('514', '萬里區漁會（農金資訊所屬會員）', 'farmers_association'),
+  ('516', '基隆區漁會（農金資訊所屬會員）', 'farmers_association'),
+  ('512', '南農中心所屬會員', 'bank'),
+  ('515', '南農中心所屬會員', 'bank'),
+  ('517', '南農中心所屬會員', 'bank'),
+  ('518', '南農中心所屬會員', 'bank'),
+  ('520', '南農中心所屬會員', 'bank'),
+  ('521', '南農中心所屬會員', 'bank'),
+  ('523', '南農中心所屬會員', 'bank'),
+  ('524', '南農中心所屬會員', 'bank'),
+  ('525', '南農中心所屬會員', 'bank'),
+  ('526', '南農中心所屬會員', 'bank'),
+  ('519', '新化區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('538', '宜蘭市農會（農金資訊所屬會員）', 'farmers_association'),
+  ('541', '白河區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('542', '麻豆區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('547', '後壁區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('549', '下營區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('551', '官田區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('552', '大內區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('556', '學甲區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('557', '新市區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('558', '安定區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('559', '山上區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('561', '左鎮區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('562', '仁德區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('564', '關廟區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('565', '龍崎區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('567', '南化區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('568', '七股區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('570', '南投市農會（農金資訊所屬會員）', 'farmers_association'),
+  ('573', '埔里鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('574', '竹山鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('575', '中寮鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('577', '魚池鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('578', '水里鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('579', '國姓鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('580', '鹿谷鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('581', '信義鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('582', '仁愛鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('583', '東山區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('585', '頭城鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('586', '羅東鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('587', '礁溪鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('588', '壯圍鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('589', '員山鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('596', '五結鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('598', '蘇澳地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('599', '三星地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('605', '高雄市高雄地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('615', '基隆市農會（農金資訊所屬會員）', 'farmers_association'),
+  ('625', '臺中市臺中地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('628', '鹿港鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('629', '和美鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('631', '溪湖鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('632', '田中鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('633', '北斗鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('635', '線西鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('636', '伸港鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('638', '花壇鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('639', '大村鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('642', '社頭鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('643', '二水鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('646', '大城鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('647', '溪州鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('649', '埔鹽鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('650', '福興鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('651', '彰化市農會（農金資訊所屬會員）', 'farmers_association'),
+  ('683', '北港鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('685', '土庫鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('693', '東勢鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('696', '水林鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('697', '元長鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('698', '麥寮鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('699', '林內鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('749', '內埔地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('762', '大溪區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('763', '桃園區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('764', '平鎮區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('765', '楊梅區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('766', '大園區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('767', '蘆竹區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('768', '龜山區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('769', '八德區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('770', '新屋區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('771', '龍潭區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('772', '復興區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('773', '觀音區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('775', '土城區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('776', '三重區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('777', '中和地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('778', '淡水區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('779', '樹林區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('780', '鶯歌區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('781', '三峽區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('785', '蘆洲區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('786', '五股區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('787', '林口區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('788', '泰山區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('789', '坪林區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('790', '八里區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('791', '金山地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('792', '瑞芳地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('793', '新店地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('795', '深坑區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('796', '石碇區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('797', '平溪區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('798', '石門區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('799', '三芝區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('860', '中埔鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('866', '阿里山鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('868', '東勢區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('869', '清水區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('870', '梧棲區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('871', '大甲區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('872', '沙鹿區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('874', '霧峰區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('875', '太平區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('876', '烏日區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('877', '后里區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('878', '大雅區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('879', '潭子區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('880', '石岡區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('881', '新社區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('882', '大肚區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('883', '外埔區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('884', '大安區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('885', '龍井區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('886', '和平區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('889', '神岡區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('891', '花蓮市農會（農金資訊所屬會員）', 'farmers_association'),
+  ('895', '瑞穗鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('896', '玉溪地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('897', '鳳榮地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('898', '光豐地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('901', '大里區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('902', '苗栗市農會（農金資訊所屬會員）', 'farmers_association'),
+  ('903', '汐止區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('904', '新莊區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('906', '頭份市農會（農金資訊所屬會員）', 'farmers_association'),
+  ('907', '竹南鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('908', '通霄鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('909', '苑裡鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('912', '冬山鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('913', '後龍鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('914', '卓蘭鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('915', '西湖鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('916', '草屯鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('917', '公館鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('918', '銅鑼鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('919', '三義鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('920', '造橋鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('921', '南庄鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('922', '臺南市臺南地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('923', '獅潭鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('924', '頭屋鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('925', '三灣鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('926', '苗栗縣大湖地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('928', '板橋區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('929', '關西鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('930', '新埔鎮農會（農金資訊所屬會員）', 'farmers_association'),
+  ('931', '竹北市農會（農金資訊所屬會員）', 'farmers_association'),
+  ('932', '湖口鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('933', '芎林鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('934', '寶山鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('935', '峨眉鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('936', '北埔鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('937', '竹東地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('938', '橫山地區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('939', '新豐鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('940', '新竹市農會信用部（農金資訊所屬會員）', 'farmers_association'),
+  ('953', '田尾鄉農會（農金資訊所屬會員）', 'farmers_association'),
+  ('984', '北投區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('985', '士林區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('986', '內湖區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('987', '南港區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('988', '木柵區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('989', '景美區農會（農金資訊所屬會員）', 'farmers_association'),
+  ('612', '南農中心所屬會員', 'bank'),
+  ('613', '南農中心所屬會員', 'bank'),
+  ('614', '南農中心所屬會員', 'bank'),
+  ('616', '南農中心所屬會員', 'bank'),
+  ('617', '南農中心所屬會員', 'bank'),
+  ('618', '南農中心所屬會員', 'bank'),
+  ('619', '南農中心所屬會員', 'bank'),
+  ('620', '南農中心所屬會員', 'bank'),
+  ('621', '南農中心所屬會員', 'bank'),
+  ('622', '南農中心所屬會員', 'bank'),
+  ('624', '南農中心所屬會員', 'bank'),
+  ('627', '南農中心所屬會員', 'bank'),
+  ('952', '南農中心所屬會員', 'bank'),
+  ('020', '日商瑞穗銀行台北分行', 'bank'),
+  ('022', '美國銀行台北分行', 'bank'),
+  ('023', '泰國盤谷銀行台北分行', 'bank'),
+  ('025', '菲律賓首都銀行台北分行', 'bank'),
+  ('029', '新加坡商大華銀行台北分行', 'bank'),
+  ('030', '美商道富銀行台北分行', 'bank'),
+  ('037', '法商法國興業銀行台北分行', 'bank'),
+  ('039', '澳商澳盛銀行台北分行', 'bank'),
+  ('072', '德商德意志銀行台北分行', 'bank'),
+  ('075', '香港商東亞銀行台北分行', 'bank'),
+  ('076', '美商摩根大通銀行台北分行', 'bank'),
+  ('082', '法國巴黎銀行台北分行', 'bank'),
+  ('085', '新加坡商新加坡華僑銀行台北分行', 'bank'),
+  ('086', '法商東方匯理銀行台北分行', 'bank'),
+  ('092', '瑞士商瑞士銀行台北分行', 'bank'),
+  ('093', '荷商安智銀行台北分行', 'bank'),
+  ('098', '日商三菱日聯銀行台北分行', 'bank'),
+  ('321', '日商三井住友銀行台北分行', 'bank'),
+  ('326', '西班牙商西班牙對外銀行臺北分行', 'bank'),
+  ('329', '印尼商印尼人民銀行台北分行', 'bank'),
+  ('330', '韓商韓亞銀行台北分行', 'bank'),
+  ('380', '大陸商中國銀行臺北分行', 'bank'),
+  ('381', '大陸商交通銀行臺北分行', 'bank'),
+  ('382', '大陸商中國建設銀行臺北分行', 'bank'),
+  ('060', '兆豐票券金融股份有限公司', 'bank'),
+  ('061', '中華票券金融股份有限公司', 'bank'),
+  ('062', '國際票券金融股份有限公司', 'bank'),
+  ('066', '萬通票券金融股份有限公司', 'bank'),
+  ('372', '大慶票券金融股份有限公司', 'bank'),
+  ('995', '關貿網路股份有限公司', 'bank'),
+  ('996', '財政部國庫署', 'bank'),
+  ('700', '中華郵政股份有限公司', 'bank');
+
+-- 共 295 筆資料

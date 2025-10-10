@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
-// 慈濟救災系統 - Supabase Community 版本配置
-const supabaseUrl = 'https://sberelieffundpj.tzuchi-org.tw'
+// 慈濟救災系統 - 私有雲 Supabase 配置
+const supabaseUrl = 'https://sbevisitpj.tzuchi-org.tw'
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzUwMzQ4ODAwLCJleHAiOjE5MDgxMTUyMDB9.gAgVJVSC45QFHO7gqEirpCquw-3w1k6pqWpoOQRA-Qg'
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -36,6 +36,8 @@ export interface DisasterApplication {
   front_id_photo?: string
   back_id_photo?: string
   bank_photo?: string
+  household_registry_photo?: string
+  household_transcript_photo?: string
   status: 'submitted' | 'reviewed' | 'approved' | 'rejected'
   created_at: string
   updated_at: string

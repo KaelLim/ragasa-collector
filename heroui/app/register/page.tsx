@@ -65,32 +65,18 @@ export default function RegisterPage() {
           setError(t('auth.registerError') + authError.message)
         }
       } else if (data.user) {
-        // 調用 PHP API 自動確認用戶
-        try {
-          const response = await fetch('/api/confirm-user.php', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ email })
-          })
+        // 檢查是否需要 Email 確認
+        const needsConfirmation = data.user.email_confirmed_at === null
 
-          const result = await response.json()
-
-          if (!response.ok) {
-            console.log('Auto confirm failed:', result.error)
-          } else {
-            console.log('User confirmed successfully:', result.message)
-          }
-        } catch (confirmError) {
-          console.log('Auto confirm request failed:', confirmError)
+        if (needsConfirmation) {
+          setSuccess(t('auth.registrationSuccessWithConfirmation'))
+        } else {
+          setSuccess(t('auth.registrationSuccess'))
+          // 3秒後自動跳轉到登入頁面
+          setTimeout(() => {
+            router.push('/login')
+          }, 3000)
         }
-
-        setSuccess(t('auth.registrationSuccess'))
-        // 3秒後自動跳轉到登入頁面
-        setTimeout(() => {
-          router.push('/login')
-        }, 3000)
       }
     } catch (err) {
       setError(t('auth.authError'))
