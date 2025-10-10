@@ -1388,8 +1388,8 @@ export default function HouseholdOCRIntegration({
         </Card>
       )}
 
-      {/* 新增戶口名簿頁面（獨立 Card）*/}
-      {isOCRCompleted && !isProcessingMembers && (
+      {/* 新增戶口名簿頁面（獨立 Card）- 戶長資料顯示後才出現 */}
+      {householdData && householdData.householdHead && !isProcessingMembers && (
         <Card className="shadow-lg border-2 border-dashed border-primary">
           <CardHeader className="bg-primary-50">
             <div className="flex items-center gap-3">
