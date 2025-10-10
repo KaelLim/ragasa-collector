@@ -591,7 +591,8 @@ export default function HouseholdOCRIntegration({
                       </div>
                     </div>
 
-                    {/* 切片預覽 */}
+                    {/* 切片預覽 - 已隱藏 */}
+                    {false && (
                     <div className="grid grid-cols-3 gap-2">
                       {pages[0].segments.map((segment) => (
                         <div
@@ -611,6 +612,7 @@ export default function HouseholdOCRIntegration({
                         </div>
                       ))}
                     </div>
+                    )}
                   </CardBody>
                 </Card>
 
@@ -690,8 +692,8 @@ export default function HouseholdOCRIntegration({
         />
       )}
 
-      {/* 切片預覽卡片（切割完成後顯示）*/}
-      {imageSegments && imageSegments.length > 0 && (
+      {/* 切片預覽卡片（切割完成後顯示）- 已隱藏 */}
+      {false && imageSegments && imageSegments.length > 0 && (
         <Card className="shadow-lg border-2 border-primary">
           <CardHeader className="bg-primary-50">
             <h3 className="text-lg font-semibold text-primary-700">📐 切割預覽</h3>
