@@ -1368,30 +1368,79 @@ export default function HouseholdOCRIntegration({
               </p>
             </div>
 
-            {/* 掃描額外頁面按鈕 */}
-            <div className="pt-4 border-t border-default-200 space-y-3">
-              {/* 顯示已上傳的頁面 */}
-              {householdPages.length > 0 && (
-                <div className="bg-success-50 p-3 rounded-lg">
-                  <p className="text-xs text-success-700 font-semibold mb-2">
-                    ✓ 已掃描 {householdPages.length + 1} 頁
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <span className="px-2 py-1 bg-success text-white text-xs rounded">第 1 頁</span>
-                    {householdPages.map((_, index) => (
-                      <span key={index} className="px-2 py-1 bg-success text-white text-xs rounded">
-                        第 {index + 2} 頁
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+            {/* 完成掃描按鈕 - 在戶長資料框內 */}
+            {!isProcessingMembers && householdPages.length === 0 && (
+              <div className="pt-4 border-t border-default-200">
+                <Button
+                  color="success"
+                  size="lg"
+                  className="w-full"
+                  onClick={handleProcessAllMembers}
+                >
+                  ✓ 完成掃描，開始辨識成員資料（1 頁）
+                </Button>
+                <p className="text-xs text-center text-default-500 mt-2">
+                  💡 如果只有一頁，可直接點擊「完成掃描」
+                </p>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      )}
 
-              {/* 上傳下一頁 */}
+      {/* 新增戶口名簿頁面（獨立 Card）*/}
+      {isOCRCompleted && !isProcessingMembers && (
+        <Card className="shadow-lg border-2 border-dashed border-primary">
+          <CardHeader className="bg-primary-50">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+                  <path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-primary">新增戶口名簿頁面</h3>
+                <p className="text-sm text-default-600">如有第 2、3 頁，請繼續掃描</p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardBody className="space-y-4">
+            {/* 顯示已掃描的頁面 */}
+            {householdPages.length > 0 && (
+              <div className="bg-success-50 p-4 rounded-lg">
+                <p className="text-sm text-success-700 font-semibold mb-3">
+                  ✓ 已掃描 {householdPages.length + 1} 頁
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <span className="px-3 py-1.5 bg-success text-white text-sm rounded-lg font-medium">
+                    第 1 頁 ✓
+                  </span>
+                  {householdPages.map((_, index) => (
+                    <span key={index} className="px-3 py-1.5 bg-success text-white text-sm rounded-lg font-medium">
+                      第 {index + 2} 頁 ✓
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 掃描下一頁 */}
+            <div className="border-2 border-dashed border-primary-300 rounded-lg p-6">
+              <div className="text-center mb-4">
+                <div className="inline-flex items-center gap-2 text-primary font-semibold text-lg">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" />
+                  </svg>
+                  <span>掃描戶口名簿第 {householdPages.length + 2} 頁</span>
+                </div>
+                <p className="text-sm text-default-600 mt-2">
+                  如果您的戶口名簿有多頁，請繼續掃描
+                </p>
+              </div>
+
               <CameraCapture
-                label={`+ 掃描第 ${householdPages.length + 2} 頁`}
+                label={`戶口名簿第 ${householdPages.length + 2} 頁`}
                 onOriginalFileSelected={async (originalFile) => {
-                  // 上傳原檔到 Storage
                   const pageNum = householdPages.length + 2
                   console.log(`📤 第 ${pageNum} 頁原檔上傳到 Storage（${originalFile.size} bytes）...`)
 
@@ -1399,7 +1448,6 @@ export default function HouseholdOCRIntegration({
                     const { url } = await uploadToTemp(originalFile, sessionUuid, 'household', pageNum)
                     console.log(`✅ 第 ${pageNum} 頁原檔已上傳: ${url}`)
 
-                    // 保存 URL
                     const storageUrlKey = `${sessionUuid}_household_page${pageNum}_url`
                     localStorage.setItem(storageUrlKey, url)
                   } catch (error) {
@@ -1409,8 +1457,6 @@ export default function HouseholdOCRIntegration({
                 onCapture={async (editedFile) => {
                   try {
                     const pageNum = householdPages.length + 2
-
-                    // 保存編輯後的檔案（用於預覽）
                     setHouseholdPages([...householdPages, editedFile])
                     console.log(`✅ 第 ${pageNum} 頁已保存`)
                   } catch (error) {
@@ -1420,37 +1466,39 @@ export default function HouseholdOCRIntegration({
                 }}
                 currentImage={null}
               />
+            </div>
 
-              {/* 完成掃描並處理成員資料 */}
-              {!isProcessingMembers && (
-                <div className="grid grid-cols-1 gap-3">
-                  <Button
-                    color="success"
-                    size="lg"
-                    className="w-full"
-                    onClick={handleProcessAllMembers}
-                  >
-                    ✓ 完成掃描，開始辨識成員資料（{householdPages.length + 1} 頁）
-                  </Button>
-                  {householdPages.length === 0 && (
-                    <p className="text-xs text-center text-default-500">
-                      💡 如果只有一頁，可直接點擊「完成掃描」
-                    </p>
-                  )}
-                </div>
-              )}
+            {/* 完成掃描按鈕 */}
+            <div className="space-y-3">
+              <Button
+                color="success"
+                size="lg"
+                variant="shadow"
+                className="w-full"
+                onClick={handleProcessAllMembers}
+                isDisabled={isProcessingMembers}
+              >
+                ✓ 完成掃描，開始辨識成員資料（{householdPages.length + 1} 頁）
+              </Button>
 
               {isProcessingMembers && (
-                <div className="p-3 bg-primary-50 rounded-lg text-center">
-                  <p className="text-sm text-primary-700">
-                    🤖 正在處理 {householdPages.length + 1} 頁成員資料...
+                <div className="p-4 bg-primary-50 rounded-lg text-center">
+                  <p className="text-sm text-primary-700 font-medium">
+                    🤖 正在處理 {householdPages.length + 1} 頁成員資料，請稍候...
                   </p>
                 </div>
               )}
 
-              <p className="text-xs text-default-500">
-                💡 如果家族成員較多，可繼續上傳第 2、3 頁，完成後點擊「完成掃描」
-              </p>
+              <div className="bg-default-100 p-3 rounded-lg">
+                <p className="text-xs text-default-600">
+                  💡 <strong>提示：</strong>
+                </p>
+                <ul className="text-xs text-default-600 mt-1 space-y-1 ml-4 list-disc">
+                  <li>如果只有一頁，直接點擊「完成掃描」</li>
+                  <li>如果有多頁，請先掃描所有頁面，再點擊「完成掃描」</li>
+                  <li>完成掃描後將自動辨識所有成員資料</li>
+                </ul>
+              </div>
             </div>
           </CardBody>
         </Card>
