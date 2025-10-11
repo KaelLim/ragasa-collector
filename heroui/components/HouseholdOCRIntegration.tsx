@@ -231,20 +231,31 @@ export default function HouseholdOCRIntegration({
       let memberIndex = 0
 
       // 逐頁進行完整圖片 OCR（從 Storage 下載原檔）
+      // 動態匯入 storage-utils
+      const { getApplicationSignedUrl } = await import('@/lib/storage-utils')
+
       for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
         const pageNum = pageIndex + 1
-        const storageUrlKey = `${sessionUuid}_household_page${pageNum}_url`
+        const storagePathKey = `${sessionUuid}_household_page${pageNum}_path`
 
-        console.log(`📄 處理第 ${pageNum} 頁（從 Storage 下載原檔）...`)
+        console.log(`📄 處理第 ${pageNum} 頁（從 Private Storage 下載原檔）...`)
 
-        // 從 Storage 下載原檔
-        const storageUrl = localStorage.getItem(storageUrlKey)
-        if (!storageUrl) {
-          console.error(`❌ 找不到第 ${pageNum} 頁的 Storage URL`)
+        // 從 localStorage 取得檔案路徑
+        const storagePath = localStorage.getItem(storagePathKey)
+        if (!storagePath) {
+          console.error(`❌ 找不到第 ${pageNum} 頁的 Storage 檔案路徑`)
           continue
         }
 
-        const originalFile = await downloadFromStorage(storageUrl, `household-page${pageNum}.jpg`)
+        // 生成 Signed URL（1小時有效）
+        const signedUrl = await getApplicationSignedUrl(storagePath, 3600)
+        if (!signedUrl) {
+          console.error(`❌ 無法生成第 ${pageNum} 頁的 Signed URL`)
+          continue
+        }
+
+        console.log(`🔐 Signed URL 已生成（1小時有效）`)
+        const originalFile = await downloadFromStorage(signedUrl, `household-page${pageNum}.jpg`)
         console.log(`  原檔大小: ${originalFile.size} bytes`)
 
         const formData = new FormData()
@@ -519,14 +530,25 @@ export default function HouseholdOCRIntegration({
                     setImagePreview(URL.createObjectURL(editedFile))
 
                     // 從 Storage 下載原檔進行 OCR
-                    const storageUrl = localStorage.getItem(storageUrlKey)
-                    if (storageUrl) {
-                      console.log(`📥 從 Storage 下載原檔: ${storageUrl}`)
-                      const originalFile = await downloadFromStorage(storageUrl, `household-page${pageNum}.jpg`)
+                    const storagePathKey = `${sessionUuid}_household_page${pageNum}_path`
+                    const storagePath = localStorage.getItem(storagePathKey)
+
+                    if (storagePath) {
+                      console.log(`📥 從 Storage 下載原檔 (Private): ${storagePath}`)
+
+                      // 生成 Signed URL（1小時有效）
+                      const { getApplicationSignedUrl } = await import('@/lib/storage-utils')
+                      const signedUrl = await getApplicationSignedUrl(storagePath, 3600)
+
+                      if (!signedUrl) {
+                        throw new Error('無法生成 Signed URL')
+                      }
+
+                      const originalFile = await downloadFromStorage(signedUrl, `household-page${pageNum}.jpg`)
                       console.log(`✅ 原檔下載完成: ${originalFile.size} bytes`)
                       await handleStartOCRWithFile(originalFile)
                     } else {
-                      throw new Error('找不到 Storage URL')
+                      throw new Error('找不到 Storage 檔案路徑')
                     }
                   } catch (error) {
                     console.error('❌ 處理失敗:', error)
@@ -1445,11 +1467,11 @@ export default function HouseholdOCRIntegration({
                   console.log(`📤 第 ${pageNum} 頁原檔上傳到 Storage（${originalFile.size} bytes）...`)
 
                   try {
-                    const { url } = await uploadToTemp(originalFile, sessionUuid, 'household', pageNum)
-                    console.log(`✅ 第 ${pageNum} 頁原檔已上傳: ${url}`)
+                    const { path } = await uploadToTemp(originalFile, sessionUuid, 'household', pageNum)
+                    console.log(`✅ 第 ${pageNum} 頁原檔已上傳 (Private): ${path}`)
 
-                    const storageUrlKey = `${sessionUuid}_household_page${pageNum}_url`
-                    localStorage.setItem(storageUrlKey, url)
+                    const storagePathKey = `${sessionUuid}_household_page${pageNum}_path`
+                    localStorage.setItem(storagePathKey, path)
                   } catch (error) {
                     console.error('❌ Storage 上傳失敗:', error)
                   }
