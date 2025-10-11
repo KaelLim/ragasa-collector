@@ -203,20 +203,28 @@ export default function VisitNotesStep({
 
       // 轉換當前段落
       await transcribeAudioSegment(audioBlob, recordingDuration)
+
+      // 轉換完成後清空 chunks，準備下一段
+      audioChunksRef.current = []
+      console.log('🗑️  段落轉換完成，已清空緩衝區')
     }
   }
 
   // 繼續錄音
   const resumeRecording = () => {
     if (mediaRecorderRef.current && isRecording && isPaused) {
+      // 此時 chunks 應該已經在暫停時清空了
+      console.log('▶️  繼續錄音（新段落）...')
+      console.log('📊 緩衝區狀態:', audioChunksRef.current.length, '個資料段')
+
       mediaRecorderRef.current.resume()
       setIsPaused(false)
 
-      // 清空 chunks，開始新段落
-      audioChunksRef.current = []
-      recordingStartTimeRef.current = Date.now() - (recordingDuration * 1000)
+      // 重置計時器（新段落從 0 開始）
+      setRecordingDuration(0)
+      recordingStartTimeRef.current = Date.now()
 
-      console.log('▶️  繼續錄音...')
+      console.log('⏱️  計時器已重置')
     }
   }
 
