@@ -156,7 +156,6 @@ export default function NewApplicationPage() {
 
       if (error) {
         console.error('載入銀行代碼失敗:', error)
-        console.log('Supabase URL:', supabase.supabaseUrl)
       }
 
       if (data) {
@@ -1939,6 +1938,7 @@ export default function NewApplicationPage() {
             </ModalBody>
           </ModalContent>
         </Modal>
+        </div>
 
         {/* OCR 資料不一致確認對話框 */}
         {showOCRConfirmModal && ocrMismatchData && (
