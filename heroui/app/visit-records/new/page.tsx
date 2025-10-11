@@ -12,7 +12,6 @@ import {
   Interviewee,
   detectVillageFromAddress,
   generateVisitCode,
-  extractDateFromUUID7,
   getNextSequenceNumber
 } from '@/lib/visit-record-types'
 import { useVisitRecord } from '@/hooks/useVisitRecord'
@@ -105,16 +104,16 @@ function VisitRecordFormContent() {
 
       setVisitCode(generatedVisitCode)
 
-      // 從 UUID7 提取日期
-      const extractedDate = extractDateFromUUID7(applicationId!)
-      setVisitDate(extractedDate)
+      // 使用當前系統時間
+      const currentDate = new Date().toISOString().split('T')[0]
+      setVisitDate(currentDate)
 
       // 初始化表單資料
       setFormData(prev => ({
         ...prev,
         basic: {
           village: detectedVillage,
-          visitDate: extractedDate,
+          visitDate: currentDate,
           victimName: victimName,
           contactAddress: address,
           interviewees: [
@@ -126,7 +125,7 @@ function VisitRecordFormContent() {
         },
         receipt: {
           ...prev.receipt!,
-          receiptDate: extractedDate
+          receiptDate: currentDate
         }
       }))
 
