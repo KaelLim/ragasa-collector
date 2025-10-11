@@ -154,12 +154,13 @@ export default function VisitNotesStep({
         stream.getTracks().forEach(track => track.stop())
       }
 
-      mediaRecorder.start()
+      // 開始錄音（每秒產生一次資料）
+      mediaRecorder.start(1000)  // timeslice: 1000ms
       setIsRecording(true)
       setIsPaused(false)
       setRecordingDuration(0)
       recordingStartTimeRef.current = Date.now()
-      console.log('🎤 開始錄音...')
+      console.log('🎤 開始錄音（每秒收集資料）...')
     } catch (error) {
       console.error('❌ 錄音失敗:', error)
       setErrorMessage(i18n.language === 'zh-TW' ? '無法存取麥克風，請檢查權限設定' : 'Cannot access microphone, please check permissions')
@@ -169,9 +170,16 @@ export default function VisitNotesStep({
   // 暫停錄音並轉換
   const pauseRecording = async () => {
     if (mediaRecorderRef.current && isRecording && !isPaused) {
+      // 先請求最後的資料
+      mediaRecorderRef.current.requestData()
+
+      // 等待 ondataavailable 觸發
+      await new Promise(resolve => setTimeout(resolve, 100))
+
       mediaRecorderRef.current.pause()
       setIsPaused(true)
       console.log('⏸️  暫停錄音，準備轉換...')
+      console.log('📊 已收集資料段數:', audioChunksRef.current.length)
 
       // 檢查是否有錄音資料
       if (audioChunksRef.current.length === 0) {
