@@ -71,11 +71,12 @@ export const WELFARE_STATUS_OPTIONS = [
  */
 export interface VisitRecordData {
   basic: {
-    kavaKashaCode: string          // 華加沙編碼（必填、唯一）
-    village: string                 // 村名（必填）
-    visitDate: string               // 紀錄日期 YYYY-MM-DD（必填）
-    victimName?: string             // 受災鄉親姓名
-    contactAddress?: string         // 聯絡地址
+    // 華加沙編碼 = visit_code（訪視編號，自動生成）
+    village: string                 // 村名（從地址自動判讀，可手動修正）
+    visitDate: string               // 紀錄日期（從 UUID7 時間戳記提取）
+    victimName: string              // 受災鄉親姓名（從個資主檔帶入）
+    contactAddress: string          // 聯絡地址（從個資主檔帶入）
+    interviewees: Interviewee[]     // 受訪視者列表（可多人，預設帶入戶長）
   }
   household: {
     specialNotes: string[]          // 家戶特殊註記（多選）
@@ -87,16 +88,15 @@ export interface VisitRecordData {
     isDonatedBack: boolean          // 是否回捐
     isReported: boolean             // 是否轉提報
   }
-  documents: {
-    idFrontPhoto?: string           // 身分證正面照 URL
-    idBackPhoto?: string            // 身分證背面照 URL（選填）
-    householdTranscript?: string    // 戶籍謄本 URL（選填）
-  }
   visit: {
     notes?: string                  // 訪視互動情形紀錄
     interactionPhotos: string[]     // 互動照片 URLs（多張）
-    receiptPhoto?: string           // 簽收單據照片 URL
     otherPhotos: string[]           // 其他佐證照片 URLs（選填、多張）
+  }
+  receipt: {
+    amount: number                  // 發放金額（預設值可設定）
+    receiptDate: string             // 簽領日期（從 UUID7 時間戳記提取，可修改）
+    signature: string               // 電子簽名 Data URL
   }
 }
 
@@ -144,6 +144,28 @@ export function generateVisitCode(
 }
 
 /**
+ * 受訪視者資料
+ */
+export interface Interviewee {
+  name: string                      // 姓名
+  relationship: string              // 關係：戶長/配偶/子女/父母/其他
+}
+
+/**
+ * 受訪視者關係選項
+ */
+export const INTERVIEWEE_RELATIONSHIP_OPTIONS = [
+  '戶長',
+  '配偶',
+  '子女',
+  '父母',
+  '其他親屬',
+  '鄰居',
+  '村里長',
+  '其他'
+] as const
+
+/**
  * 從訪視編號解析村代碼和流水號
  *
  * @param visitCode - 訪視編號
@@ -164,6 +186,30 @@ export function parseVisitCode(visitCode: string): {
     applicationId: match[1],
     villageCode: match[2],
     sequenceNumber: parseInt(match[3], 10)
+  }
+}
+
+/**
+ * 從 UUID7 提取時間戳記
+ * UUID7 格式：前48位是毫秒級時間戳記
+ *
+ * @param uuid7 - UUID7 字串
+ * @returns ISO 日期字串 (YYYY-MM-DD)
+ */
+export function extractDateFromUUID7(uuid7: string): string {
+  try {
+    // 移除連字符並取前12個十六進位字元（48位）
+    const hex = uuid7.replace(/-/g, '').substring(0, 12)
+
+    // 轉換為毫秒時間戳記
+    const timestamp = parseInt(hex, 16)
+
+    // 轉換為日期並格式化為 YYYY-MM-DD
+    const date = new Date(timestamp)
+    return date.toISOString().split('T')[0]
+  } catch (error) {
+    // 如果解析失敗，返回今天日期
+    return new Date().toISOString().split('T')[0]
   }
 }
 
@@ -190,4 +236,23 @@ export function getNextSequenceNumber(
   }
 
   return Math.max(...sameVillageNumbers) + 1
+}
+
+/**
+ * 從地址自動判讀村名
+ *
+ * @param address - 聯絡地址
+ * @returns 村名，如無法判讀則返回 '其他'
+ */
+export function detectVillageFromAddress(address: string): string {
+  if (!address) return '其他'
+
+  // 按照村名關鍵字進行判讀
+  for (const village of VILLAGE_OPTIONS) {
+    if (village !== '其他' && address.includes(village)) {
+      return village
+    }
+  }
+
+  return '其他'
 }
