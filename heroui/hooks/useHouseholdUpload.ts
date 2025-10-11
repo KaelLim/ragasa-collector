@@ -72,12 +72,8 @@ export function useHouseholdUpload() {
         throw error
       }
 
-      // 取得公開 URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('media')
-        .getPublicUrl(data.path)
-
-      return publicUrl
+      // 返回檔案路徑（用於 Signed URL）
+      return data.path
     } catch (error) {
       console.error('Error uploading document:', error)
       throw error

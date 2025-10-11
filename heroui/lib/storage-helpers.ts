@@ -111,24 +111,24 @@ export function loadFromLocalStorage(key: string, fileName: string = 'file.jpg')
 }
 
 /**
- * 上傳檔案到暫存區
+ * 上傳檔案到暫存區 (Private Bucket)
  * @param file - 檔案物件
  * @param applicationUuid - 申請的 UUID7
  * @param fileType - 檔案類型
  * @param pageNum - 頁碼（可選）
- * @returns Storage 路徑和公開 URL
+ * @returns Storage 路徑（用於 Signed URL）
  */
 export async function uploadToTemp(
   file: File,
   applicationUuid: string,
   fileType: FileType,
   pageNum?: number
-): Promise<{ path: string; url: string }> {
+): Promise<{ path: string }> {
   const ext = getFileExtension(file)
   const fileName = generateFileName(applicationUuid, fileType, pageNum)
   const path = `temp/${fileName}.${ext}`
 
-  console.log(`📤 上傳到暫存區: ${path}`)
+  console.log(`📤 上傳到暫存區 (Private): ${path}`)
 
   const { data, error } = await supabase.storage
     .from('media')
@@ -142,16 +142,10 @@ export async function uploadToTemp(
     throw new Error(`檔案上傳失敗: ${error.message}`)
   }
 
-  // 取得公開 URL
-  const { data: urlData } = supabase.storage
-    .from('media')
-    .getPublicUrl(path)
-
-  console.log(`✅ 上傳成功: ${urlData.publicUrl}`)
+  console.log(`✅ 上傳成功 (Private): ${path}`)
 
   return {
-    path,
-    url: urlData.publicUrl
+    path // 僅返回路徑，不返回 URL
   }
 }
 
