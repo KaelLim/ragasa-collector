@@ -505,17 +505,17 @@ export default function HouseholdOCRIntegration({
               <CameraCapture
                 label="戶口名簿"
                 onOriginalFileSelected={async (originalFile) => {
-                  // 上傳原檔到 Supabase Storage
+                  // 上傳原檔到 Supabase Storage (Private)
                   const pageNum = householdPages.length + 1
                   console.log(`📤 上傳原檔到 Storage（${originalFile.size} bytes）...`)
 
                   try {
-                    const { url } = await uploadToTemp(originalFile, sessionUuid, 'household', pageNum)
-                    console.log(`✅ 原檔已上傳: ${url}`)
+                    const { path } = await uploadToTemp(originalFile, sessionUuid, 'household', pageNum)
+                    console.log(`✅ 原檔已上傳 (Private): ${path}`)
 
-                    // 保存 URL 供後續 OCR 使用
-                    const storageKey = `${sessionUuid}_household_page${pageNum}_url`
-                    localStorage.setItem(storageKey, url)
+                    // 保存檔案路徑供後續 OCR 使用
+                    const storagePathKey = `${sessionUuid}_household_page${pageNum}_path`
+                    localStorage.setItem(storagePathKey, path)
                   } catch (error) {
                     console.error('❌ Storage 上傳失敗:', error)
                   }
@@ -523,7 +523,6 @@ export default function HouseholdOCRIntegration({
                 onCapture={async (editedFile) => {
                   try {
                     const pageNum = householdPages.length + 1
-                    const storageUrlKey = `${sessionUuid}_household_page${pageNum}_url`
 
                     // 預覽用（使用編輯後的檔案）
                     setUploadedImage(editedFile)
@@ -552,7 +551,12 @@ export default function HouseholdOCRIntegration({
                     }
                   } catch (error) {
                     console.error('❌ 處理失敗:', error)
-                    alert('檔案處理失敗，請重試')
+                    console.error('錯誤詳情:', {
+                      message: error instanceof Error ? error.message : '未知錯誤',
+                      stack: error instanceof Error ? error.stack : undefined,
+                      error: error
+                    })
+                    alert(`檔案處理失敗: ${error instanceof Error ? error.message : '未知錯誤'}`)
                   }
                 }}
                 currentImage={imagePreview}
