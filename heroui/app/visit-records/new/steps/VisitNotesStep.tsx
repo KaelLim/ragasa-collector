@@ -87,7 +87,16 @@ export default function VisitNotesStep({
 
       const selectedMic = availableMicrophones.find(m => m.deviceId === selectedMicrophoneId)
       console.log('🎤 使用麥克風:', selectedMic?.label || '預設麥克風')
-      const mediaRecorder = new MediaRecorder(stream)
+
+      // 使用 MP3 格式（Whisper 更相容）
+      // 檢查瀏覽器是否支援 MP3 編碼
+      const mimeType = MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : 'audio/webm'
+
+      console.log('🎵 錄音格式:', mimeType)
+
+      const mediaRecorder = new MediaRecorder(stream, { mimeType })
       mediaRecorderRef.current = mediaRecorder
       audioChunksRef.current = []
 
@@ -98,7 +107,9 @@ export default function VisitNotesStep({
       }
 
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        // 使用錄音時的 mimeType
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType })
+        console.log('🎵 錄音完成，格式:', mimeType, '大小:', Math.round(audioBlob.size / 1024), 'KB')
         await transcribeAudio(audioBlob)
 
         // 停止所有音訊軌道
@@ -129,11 +140,18 @@ export default function VisitNotesStep({
       setIsTranscribing(true)
       console.log('🎙️ 開始語音轉文字...')
       console.log('📊 音訊大小:', Math.round(audioBlob.size / 1024), 'KB')
+      console.log('📊 音訊格式:', audioBlob.type)
+
+      // 根據 MIME type 決定副檔名
+      const extension = audioBlob.type.includes('mp4') ? 'mp4' : 'webm'
+      const fileName = `recording.${extension}`
 
       const formData = new FormData()
-      formData.append('file', audioBlob, 'recording.webm')
+      formData.append('file', audioBlob, fileName)
       formData.append('model', 'large-v3-turbo')
       formData.append('language', 'zh')  // ⭐ 關鍵：輸出繁體中文
+
+      console.log('📤 發送檔案:', fileName, '大小:', Math.round(audioBlob.size / 1024), 'KB')
 
       const response = await fetch('/api/whisper', {
         method: 'POST',

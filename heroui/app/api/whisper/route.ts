@@ -60,17 +60,16 @@ export async function POST(request: NextRequest) {
 
     const startTime = Date.now()
 
-    // 將 File 轉換為 Buffer（Node.js 環境）
-    const arrayBuffer = await audioFile.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
-
-    // 建立 File-like 物件供 OpenAI SDK 使用
-    const fileObject = new File([buffer], audioFile.name, { type: audioFile.type })
+    // 直接使用 File 物件（Next.js FormData 已經是 File 類型）
+    console.log('📤 準備調用 Xinference:')
+    console.log('   - 模型:', `whisper-${model}-mlx`)
+    console.log('   - 語言:', language)
+    console.log('   - 檔案:', audioFile.name, '類型:', audioFile.type)
 
     // 調用 OpenAI SDK（相容 Xinference）
     const result = await client.audio.transcriptions.create({
       model: `whisper-${model}-mlx`,
-      file: fileObject,
+      file: audioFile,  // 直接使用 File 物件
       language: language,  // ⭐ 繁體中文輸出的關鍵參數
       ...(prompt ? { prompt } : {})
     })
