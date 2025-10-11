@@ -157,7 +157,7 @@ export default function VisitNotesStep({
           console.log(`💾 上傳最後段落: ${fileName}`)
 
           const { error: uploadError } = await supabase.storage
-            .from('media')
+            .from('audio')  // 使用音訊專用 bucket
             .upload(fileName, audioBlob, {
               cacheControl: '3600',
               upsert: true
@@ -232,7 +232,7 @@ export default function VisitNotesStep({
         const fileName = `temp/audio/phase${currentPhase}.${extension}`
 
         const { error: uploadError } = await supabase.storage
-          .from('media')
+          .from('audio')  // 使用音訊專用 bucket
           .upload(fileName, audioBlob, {
             cacheControl: '3600',
             upsert: true
