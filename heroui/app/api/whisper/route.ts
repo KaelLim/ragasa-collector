@@ -59,8 +59,15 @@ export async function POST(request: NextRequest) {
     // 驗證 FormData 內容
     console.log('📤 發送到 Xinference 的參數:')
     console.log('   - model:', `whisper-${model}-mlx`)
-    console.log('   - language:', language)
+    console.log('   - language:', language, '⭐ 關鍵參數')
     console.log('   - file size:', audioFile.size, 'bytes')
+
+    // 重要：驗證 FormData 是否包含 language
+    for (const [key, value] of xinferenceFormData.entries()) {
+      if (key === 'language') {
+        console.log('✅ FormData 包含 language 參數:', value)
+      }
+    }
 
     // 調用 Xinference Whisper API
     const startTime = Date.now()
@@ -69,6 +76,8 @@ export async function POST(request: NextRequest) {
     if (XINFERENCE_API_KEY) {
       headers['Authorization'] = `Bearer ${XINFERENCE_API_KEY}`
     }
+
+    console.log('🌐 調用 Xinference API:', `${XINFERENCE_API_URL}/audio/transcriptions`)
 
     const response = await fetch(`${XINFERENCE_API_URL}/audio/transcriptions`, {
       method: 'POST',
