@@ -144,26 +144,27 @@ export function useVisitRecord() {
   }, [])
 
   /**
-   * 上傳單張照片到 Supabase Storage
+   * 上傳單張照片到 Supabase Storage (Private Bucket)
    */
   const uploadPhoto = useCallback(async (
     file: File,
     folder: 'id-front' | 'id-back' | 'interactions' | 'receipts' | 'transcripts' | 'others'
   ): Promise<string> => {
+    // 取得當前使用者 ID 作為資料夾名稱
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('User not authenticated')
+
     const fileExt = file.name.split('.').pop()
-    const fileName = `${folder}/${crypto.randomUUID()}.${fileExt}`
+    const fileName = `${user.id}/${folder}/${crypto.randomUUID()}.${fileExt}`
 
     const { error: uploadError } = await supabase.storage
-      .from('visit-media')
+      .from('visitrecords')
       .upload(fileName, file)
 
     if (uploadError) throw uploadError
 
-    const { data } = supabase.storage
-      .from('visit-media')
-      .getPublicUrl(fileName)
-
-    return data.publicUrl
+    // Private bucket 儲存檔案路徑，稍後使用 signed URL 存取
+    return fileName
   }, [])
 
   /**
