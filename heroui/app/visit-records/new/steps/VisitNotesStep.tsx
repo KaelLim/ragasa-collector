@@ -45,7 +45,9 @@ export default function VisitNotesStep({
     text: string
     duration: number
     timestamp: string
+    audioPath: string  // Storage 檔案路徑
   }[]>([])
+  const [currentPhase, setCurrentPhase] = useState(1)  // 當前段落編號
 
   // 麥克風設定
   const [availableMicrophones, setAvailableMicrophones] = useState<MediaDeviceInfo[]>([])
@@ -149,8 +151,29 @@ export default function VisitNotesStep({
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType })
         console.log('🎵 錄音完成，格式:', mimeType, '大小:', Math.round(audioBlob.size / 1024), 'KB')
 
-        // 轉換最後一個段落
-        await transcribeAudioSegment(audioBlob, recordingDuration)
+        // 上傳最後一個段落到 Storage
+        try {
+          const { supabase } = await import('@/lib/supabase')
+          const extension = mimeType.includes('mp4') ? 'mp4' : 'webm'
+          const fileName = `temp/audio/phase${currentPhase}.${extension}`
+
+          console.log(`💾 上傳最後段落: ${fileName}`)
+
+          const { error: uploadError } = await supabase.storage
+            .from('media')
+            .upload(fileName, audioBlob, {
+              cacheControl: '3600',
+              upsert: true
+            })
+
+          if (!uploadError) {
+            console.log(`✅ 最後段落已上傳`)
+            // 轉換最後一個段落
+            await transcribeAudioSegment(audioBlob, recordingDuration, fileName)
+          }
+        } catch (error) {
+          console.error('❌ 最後段落上傳失敗:', error)
+        }
 
         // 停止所有音訊軌道
         stream.getTracks().forEach(track => track.stop())
@@ -180,7 +203,7 @@ export default function VisitNotesStep({
 
       mediaRecorderRef.current.pause()
       setIsPaused(true)
-      console.log('⏸️  暫停錄音，準備轉換...')
+      console.log(`⏸️  暫停錄音（段落 ${currentPhase}），準備轉換...`)
       console.log('📊 已收集資料段數:', audioChunksRef.current.length)
 
       // 檢查是否有錄音資料
@@ -190,11 +213,11 @@ export default function VisitNotesStep({
         return
       }
 
-      // 暫停時送出當前段落轉換
+      // 建立音訊 Blob
       const audioBlob = new Blob(audioChunksRef.current, {
         type: mediaRecorderRef.current.mimeType
       })
-      console.log('🎵 暫停段落大小:', Math.round(audioBlob.size / 1024), 'KB')
+      console.log('🎵 段落音訊大小:', Math.round(audioBlob.size / 1024), 'KB')
 
       // 檢查音訊大小（至少 5 KB）
       if (audioBlob.size < 5000) {
@@ -203,12 +226,39 @@ export default function VisitNotesStep({
         return
       }
 
-      // 轉換當前段落
-      await transcribeAudioSegment(audioBlob, recordingDuration)
+      // 1. 先上傳音訊到 Storage（temp/audio/phaseX）
+      console.log(`💾 上傳音訊到 Storage: temp/audio/phase${currentPhase}`)
 
-      // 轉換完成後清空 chunks，準備下一段
-      audioChunksRef.current = []
-      console.log('🗑️  段落轉換完成，已清空緩衝區')
+      try {
+        const { supabase } = await import('@/lib/supabase')
+        const extension = audioBlob.type.includes('mp4') ? 'mp4' : 'webm'
+        const fileName = `temp/audio/phase${currentPhase}.${extension}`
+
+        const { error: uploadError } = await supabase.storage
+          .from('media')
+          .upload(fileName, audioBlob, {
+            cacheControl: '3600',
+            upsert: true
+          })
+
+        if (uploadError) throw uploadError
+
+        console.log(`✅ 音訊已上傳: ${fileName}`)
+
+        // 2. 轉換當前段落（傳遞檔案路徑）
+        await transcribeAudioSegment(audioBlob, recordingDuration, fileName)
+
+        // 3. 轉換完成後清空 chunks，準備下一段
+        audioChunksRef.current = []
+        console.log('🗑️  段落轉換完成，已清空緩衝區')
+
+        // 4. 遞增段落編號
+        setCurrentPhase(prev => prev + 1)
+
+      } catch (error) {
+        console.error('❌ 音訊上傳失敗:', error)
+        setErrorMessage('音訊檔案上傳失敗')
+      }
     }
   }
 
@@ -249,12 +299,14 @@ export default function VisitNotesStep({
   }
 
   // 語音轉文字（段落）
-  const transcribeAudioSegment = async (audioBlob: Blob, duration: number) => {
+  const transcribeAudioSegment = async (audioBlob: Blob, duration: number, audioPath: string) => {
     try {
       setIsTranscribing(true)
       console.log('🎙️ 開始語音轉文字...')
+      console.log('📁 音訊檔案:', audioPath)
       console.log('📊 音訊大小:', Math.round(audioBlob.size / 1024), 'KB')
       console.log('📊 音訊格式:', audioBlob.type)
+      console.log('⏱️  段落時長:', formatDuration(duration))
 
       // 根據 MIME type 決定副檔名
       const extension = audioBlob.type.includes('mp4') ? 'mp4' : 'webm'
@@ -290,15 +342,17 @@ export default function VisitNotesStep({
       const result = await response.json()
       console.log('✅ 轉錄完成:', result.text.substring(0, 100) + '...')
 
-      // 保存到錄音段落列表
+      // 保存到錄音段落列表（包含音訊檔案路徑）
       const segment = {
         text: result.text,
         duration: duration,
-        timestamp: new Date().toLocaleTimeString('zh-TW', { hour12: false })
+        timestamp: new Date().toLocaleTimeString('zh-TW', { hour12: false }),
+        audioPath: audioPath
       }
 
       setRecordingSegments(prev => [...prev, segment])
       console.log('📝 錄音段落已保存，總段落數:', recordingSegments.length + 1)
+      console.log('📁 音訊檔案:', audioPath)
 
       // 同時附加到訪視記錄
       setVisitNotes(prev => {
