@@ -3,12 +3,141 @@
 ## 📌 系統資訊
 
 **系統名稱**: 慈濟發放訪視系統
-**目前版本**: V1.1.0
+**目前版本**: V1.2.0
 **版本格式**: V[大升級].[功能更新].[Debug]
 
 ---
 
 ## 📋 系統更新歷程
+
+### V1.2.0 (2025-10-11)
+**重大功能更新：訪視紀錄模組完整實作**
+
+#### 核心功能
+- ✅ **步驟 0-4 完整實作**（共 6 個步驟，完成 5 個）
+- ✅ **Whisper STT 語音轉文字**（繁體中文輸出）
+- ✅ **多段錄音功能**（暫停、繼續、計時器）
+- ✅ **麥克風選擇**（多裝置支援）
+- ✅ **多張照片上傳**（互動照片 + 其他佐證）
+
+#### 步驟明細
+
+**步驟 0: 待訪視列表**
+- 從個資主檔過濾未建立訪視記錄的案件
+- 三欄資訊：姓名、編號、地址
+- 響應式設計（桌面表格/手機卡片）
+
+**步驟 1: 基本資訊確認**
+- 自動生成訪視編號（{UUID7}-{村代碼}{流水號}）
+- 從地址自動判讀村名
+- 多位受訪視者管理（+ 新增功能）
+- 受訪視者關係選擇
+
+**步驟 2: 家戶資料與需求**
+- 家戶特殊註記（6 個選項，多選）
+- 後續需求項目（10 個選項，多選）
+- 福利身分（3 個選項，單選）
+
+**步驟 3: 狀態標記**
+- 是否完成領取（預設勾選）
+- 是否回捐
+- 是否轉提報
+
+**步驟 4: 訪視記錄**
+- Whisper 語音轉文字（繁體中文）
+- 錄音計時器（mm:ss 格式）
+- 暫停/繼續錄音
+- 多段錄音管理
+- 麥克風選擇（多裝置）
+- 互動照片上傳（多張）
+- 其他佐證照片（選填、多張）
+
+#### 技術架構
+
+**Whisper STT 整合**:
+- 模型: whisper-large-v3-turbo-mlx
+- 語言參數: language=zh + initial_prompt
+- 處理效能: 40x 實時速度
+- 私有雲端點: https://tcm2studio.tzuchi-org.tw/v1
+- OpenAI Client SDK 相容模式
+
+**UUID7 全系統遷移**:
+- 前端生成 UUID7（包含時間戳記）
+- disaster_applications 明確指定 UUID
+- visit_records 明確指定 UUID
+- 訪視編號格式修正：{UUID7}-{村代碼}{流水號}
+
+**Storage 安全性**:
+- Private Bucket 架構設計
+- Signed URLs 工具函數
+- Storage RLS 政策（media + visitrecords）
+- 避免敏感資料外洩
+
+**架構重構**:
+- 步驟組件化（避免巨型組件）
+- page.tsx 精簡 47%（524行 → 275行）
+- 獨立步驟組件檔案（steps/*.tsx）
+
+**Dark Mode 規範**:
+- 嚴禁使用 bg-white 固定色
+- 使用 bg-default-X 自適應
+- 文字高反差配色（dark: 變體）
+
+#### 新增檔案
+
+**步驟組件**:
+- app/visit-records/new/steps/BasicInfoStep.tsx
+- app/visit-records/new/steps/HouseholdNeedsStep.tsx
+- app/visit-records/new/steps/StatusMarksStep.tsx
+- app/visit-records/new/steps/VisitNotesStep.tsx
+
+**API 端點**:
+- app/api/whisper/route.ts（Whisper STT）
+
+**資料庫 Schema**:
+- sql/create_visit_records_v2.sql
+- sql/recreate_applications_uuid7.sql
+- sql/create_storage_policies.sql
+- sql/create_media_storage_policies.sql
+
+**類型與工具**:
+- lib/visit-record-types.ts
+- lib/storage-utils.ts
+- hooks/useVisitRecord.ts
+
+**配置檔案**:
+- .env.stt（Whisper 配置）
+- .env.stt.example
+
+**技術文檔**:
+- VISIT_RECORDS_DESIGN.md
+- VISIT_RECORDS_DEPLOYMENT.md
+- UUID7_DEPLOYMENT_GUIDE.md
+- STORAGE_SECURITY_MIGRATION.md
+
+#### 技術變更
+- 📦 版本號：V1.1.0 → V1.2.0
+- 🎤 整合 Whisper STT（繁體中文）
+- 🔐 Storage 安全性升級
+- 🏗️ 組件架構重構
+- 🎨 Dark Mode 嚴格規範
+
+#### Bug 修復（超過 20 個）
+- 變數名稱拼寫錯誤
+- 按鈕嵌套錯誤
+- 日期顯示錯誤
+- Storage URL 路徑問題
+- 戶口名簿 OCR 整合
+- 錄音資料收集
+- Dark mode 配色
+- 等等...
+
+#### 相關 Commits（本次會話）
+`68c62a7` - feat: 新增訪視紀錄模組 V1.1.0（Dashboard 卡片）
+...共 30+ commits...
+`08183b4` - fix: 重構 Whisper API 代碼結構
+
+---
 
 ### V1.1.0 (2025-10-11)
 **功能更新：新增訪視紀錄模組**

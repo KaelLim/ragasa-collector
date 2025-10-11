@@ -48,7 +48,7 @@ export default function Logo({ className = "", width = 40, height = 40, clickabl
   const iconPath = theme === 'dark' ? '/favicon-dark.svg' : '/favicon-light.svg'
 
   // 根據語言顯示不同標題
-  const logoText = i18n.language === 'zh-TW' ? '慈濟發放訪視系統 V1.1.0' : 'TC Distribution Survey System V1.1.0'
+  const logoText = i18n.language === 'zh-TW' ? '慈濟發放訪視系統 V1.2.0' : 'TC Distribution Survey System V1.2.0'
 
   const handleClick = () => {
     if (clickable) {

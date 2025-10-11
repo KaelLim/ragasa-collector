@@ -1,7 +1,7 @@
 export type SiteConfig = typeof siteConfig;
 
 export const siteConfig = {
-  name: "慈濟發放訪視系統 V1.1.0",
+  name: "慈濟發放訪視系統 V1.2.0",
   description: "慈濟發放訪視個人資料收集系統",
   navItems: [
     {
