@@ -4,6 +4,8 @@ import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardBody } from '@heroui/card'
 import { Button } from '@heroui/button'
+import { Input } from '@heroui/input'
+import { Select, SelectItem } from '@heroui/select'
 import { useTranslation } from 'react-i18next'
 import { supabase } from '@/lib/supabase'
 import Logo from '@/components/logo'
@@ -411,15 +413,20 @@ function BasicInfoStep({
               <span className="text-default-600 w-28">
                 {i18n.language === 'zh-TW' ? '村名' : 'Village'}:
               </span>
-              <select
-                className="flex-1 px-3 py-2 rounded-lg border border-default-300 bg-white"
-                value={village}
-                onChange={(e) => setVillage(e.target.value)}
-              >
-                {VILLAGE_OPTIONS.map(v => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
-              </select>
+              <div className="flex-1">
+                <Select
+                  aria-label="村名選擇"
+                  selectedKeys={[village]}
+                  onSelectionChange={(keys) => setVillage(Array.from(keys)[0] as string)}
+                  classNames={{
+                    trigger: "bg-default-100"
+                  }}
+                >
+                  {VILLAGE_OPTIONS.map(v => (
+                    <SelectItem key={v} value={v}>{v}</SelectItem>
+                  ))}
+                </Select>
+              </div>
               <span className="text-xs text-warning">✏️</span>
             </div>
           </div>
@@ -469,33 +476,30 @@ function BasicInfoStep({
                 </div>
 
                 <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      {i18n.language === 'zh-TW' ? '姓名' : 'Name'} <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      className="w-full px-3 py-2 rounded-lg border border-default-300"
-                      value={interviewee.name}
-                      onChange={(e) => handleIntervieweeChange(index, 'name', e.target.value)}
-                      placeholder={i18n.language === 'zh-TW' ? '請輸入姓名' : 'Enter name'}
-                    />
-                  </div>
+                  <Input
+                    label={i18n.language === 'zh-TW' ? '姓名' : 'Name'}
+                    placeholder={i18n.language === 'zh-TW' ? '請輸入姓名' : 'Enter name'}
+                    value={interviewee.name}
+                    onValueChange={(value) => handleIntervieweeChange(index, 'name', value)}
+                    isRequired
+                    classNames={{
+                      inputWrapper: "bg-default-100"
+                    }}
+                  />
 
-                  <div>
-                    <label className="block text-sm font-medium mb-1">
-                      {i18n.language === 'zh-TW' ? '關係' : 'Relationship'}
-                    </label>
-                    <select
-                      className="w-full px-3 py-2 rounded-lg border border-default-300 bg-white"
-                      value={interviewee.relationship}
-                      onChange={(e) => handleIntervieweeChange(index, 'relationship', e.target.value)}
-                    >
-                      {RELATIONSHIP_OPTIONS.map(rel => (
-                        <option key={rel} value={rel}>{rel}</option>
-                      ))}
-                    </select>
-                  </div>
+                  <Select
+                    label={i18n.language === 'zh-TW' ? '關係' : 'Relationship'}
+                    aria-label="關係選擇"
+                    selectedKeys={[interviewee.relationship]}
+                    onSelectionChange={(keys) => handleIntervieweeChange(index, 'relationship', Array.from(keys)[0] as string)}
+                    classNames={{
+                      trigger: "bg-default-100"
+                    }}
+                  >
+                    {RELATIONSHIP_OPTIONS.map(rel => (
+                      <SelectItem key={rel} value={rel}>{rel}</SelectItem>
+                    ))}
+                  </Select>
                 </div>
               </div>
             ))}
