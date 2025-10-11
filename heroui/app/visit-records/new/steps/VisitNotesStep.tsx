@@ -36,6 +36,7 @@ export default function VisitNotesStep({
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [currentPhoto, setCurrentPhoto] = useState<File | null>(null)
   const [photoType, setPhotoType] = useState<'interaction' | 'other' | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string>('')
 
   // 多段錄音管理
   const [recordingSegments, setRecordingSegments] = useState<{
@@ -161,7 +162,7 @@ export default function VisitNotesStep({
       console.log('🎤 開始錄音...')
     } catch (error) {
       console.error('❌ 錄音失敗:', error)
-      alert(i18n.language === 'zh-TW' ? '無法存取麥克風' : 'Cannot access microphone')
+      setErrorMessage(i18n.language === 'zh-TW' ? '無法存取麥克風，請檢查權限設定' : 'Cannot access microphone, please check permissions')
     }
   }
 
@@ -172,11 +173,25 @@ export default function VisitNotesStep({
       setIsPaused(true)
       console.log('⏸️  暫停錄音，準備轉換...')
 
+      // 檢查是否有錄音資料
+      if (audioChunksRef.current.length === 0) {
+        console.warn('⚠️  無錄音資料，跳過轉換')
+        setErrorMessage('錄音時間太短，請至少錄製 3 秒')
+        return
+      }
+
       // 暫停時送出當前段落轉換
       const audioBlob = new Blob(audioChunksRef.current, {
         type: mediaRecorderRef.current.mimeType
       })
       console.log('🎵 暫停段落大小:', Math.round(audioBlob.size / 1024), 'KB')
+
+      // 檢查音訊大小（至少 5 KB）
+      if (audioBlob.size < 5000) {
+        console.warn('⚠️  音訊檔案太小:', audioBlob.size, 'bytes')
+        setErrorMessage('錄音時間太短，請至少錄製 3 秒')
+        return
+      }
 
       // 轉換當前段落
       await transcribeAudioSegment(audioBlob, recordingDuration)
@@ -263,12 +278,12 @@ export default function VisitNotesStep({
         return newText
       })
 
-      alert(i18n.language === 'zh-TW'
-        ? `語音轉文字完成！段落 ${recordingSegments.length + 1}`
-        : `Transcription completed! Segment ${recordingSegments.length + 1}`)
+      // 清除錯誤訊息（成功時）
+      setErrorMessage('')
+      console.log('✅ 段落', recordingSegments.length + 1, '轉換完成')
     } catch (error) {
       console.error('❌ 轉錄失敗:', error)
-      alert(i18n.language === 'zh-TW'
+      setErrorMessage(i18n.language === 'zh-TW'
         ? `語音轉文字失敗: ${error instanceof Error ? error.message : '未知錯誤'}`
         : `Transcription failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
@@ -335,6 +350,28 @@ export default function VisitNotesStep({
               : 'Record visit interactions and on-site photos'}
           </p>
         </div>
+
+        {/* 錯誤訊息顯示 */}
+        {errorMessage && (
+          <div className="bg-danger-50 border border-danger-200 rounded-lg p-3">
+            <div className="flex items-start gap-2">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" className="text-danger-600 flex-shrink-0">
+                <path d="M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z" />
+              </svg>
+              <div className="flex-1">
+                <p className="text-sm text-danger-800">{errorMessage}</p>
+              </div>
+              <button
+                onClick={() => setErrorMessage('')}
+                className="text-danger-600 hover:text-danger-800"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* 訪視互動情形記錄 */}
         <div className="space-y-3">
