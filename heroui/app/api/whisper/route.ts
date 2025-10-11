@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
 
     console.log('🎙️ Whisper STT 請求:')
     console.log('   模型:', model)
-    console.log('   語言:', language)
+    console.log('   語言參數:', language, '⭐ (應輸出繁體中文)')
     console.log('   檔案:', audioFile.name, `(${Math.round(audioFile.size / 1024)} KB)`)
 
     // 準備轉發給 Xinference 的 FormData
@@ -55,6 +55,12 @@ export async function POST(request: NextRequest) {
     if (prompt) {
       xinferenceFormData.append('prompt', prompt)
     }
+
+    // 驗證 FormData 內容
+    console.log('📤 發送到 Xinference 的參數:')
+    console.log('   - model:', `whisper-${model}-mlx`)
+    console.log('   - language:', language)
+    console.log('   - file size:', audioFile.size, 'bytes')
 
     // 調用 Xinference Whisper API
     const startTime = Date.now()
@@ -90,14 +96,25 @@ export async function POST(request: NextRequest) {
     console.log('✅ 轉錄完成')
     console.log(`⏱️  處理時間: ${processingTime} 秒`)
     console.log(`📝 轉錄字數: ${result.text?.length || 0} 字`)
-    console.log(`🎯 語言輸出: ${language === 'zh' ? '繁體中文' : language}`)
+    console.log(`🎯 請求語言參數: ${language}`)
+    console.log(`🎯 Xinference 回應語言: ${result.language || '未提供'}`)
+    console.log(`📄 轉錄內容預覽:`, result.text?.substring(0, 50) + '...')
+
+    // 檢查是否為繁體中文
+    const hasSimplfied = /[\u4e00-\u9fa5]/.test(result.text) && (
+      result.text.includes('这') || result.text.includes('们') || result.text.includes('说')
+    )
+    if (hasSimplfied) {
+      console.warn('⚠️  警告：輸出仍為簡體中文！language 參數可能未生效')
+    }
 
     return NextResponse.json({
       text: result.text,
       language: result.language || language,
       duration: result.duration,
       processingTime: parseFloat(processingTime),
-      model: `whisper-${model}-mlx`
+      model: `whisper-${model}-mlx`,
+      requestedLanguage: language  // 加入請求的語言參數供除錯
     })
 
   } catch (error) {
