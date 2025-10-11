@@ -18,6 +18,7 @@ import BasicInfoStep from './steps/BasicInfoStep'
 import HouseholdNeedsStep from './steps/HouseholdNeedsStep'
 import StatusMarksStep from './steps/StatusMarksStep'
 import VisitNotesStep from './steps/VisitNotesStep'
+import ReceiptStep from './steps/ReceiptStep'
 
 // 步驟定義
 type VisitStep = 'basic-info' | 'household-needs' | 'status-marks' | 'visit-notes' | 'receipt' | 'confirmation'
@@ -271,6 +272,16 @@ function VisitRecordFormContent() {
         {currentStep === 'visit-notes' && (
           <VisitNotesStep
             formData={formData}
+            setFormData={setFormData}
+            onNext={handleNextStep}
+            onPrev={handlePrevStep}
+          />
+        )}
+
+        {currentStep === 'receipt' && (
+          <ReceiptStep
+            formData={formData}
+            applicationData={applicationData}
             setFormData={setFormData}
             onNext={handleNextStep}
             onPrev={handlePrevStep}
