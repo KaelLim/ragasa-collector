@@ -126,8 +126,8 @@ export interface PendingVisitCase {
 
 /**
  * 生成訪視編號
- * 格式: {主檔UUID7}B{村代碼}{流水號}
- * 範例: 01234567-89ab-cdef-0123-456789abcdefBA0001
+ * 格式: {主檔UUID7}-{村代碼}{流水號}
+ * 範例: 01234567-89ab-cdef-0123-456789abcdef-A0001
  *
  * @param applicationId - 個資主檔 UUID7
  * @param village - 村名
@@ -140,7 +140,7 @@ export function generateVisitCode(
 ): string {
   const villageCode = VILLAGE_CODE_MAP[village] || 'O'
   const seq = sequenceNumber.toString().padStart(4, '0')
-  return `${applicationId}B${villageCode}${seq}`
+  return `${applicationId}-${villageCode}${seq}`
 }
 
 /**
@@ -176,8 +176,8 @@ export function parseVisitCode(visitCode: string): {
   villageCode: string
   sequenceNumber: number
 } | null {
-  // 格式: {36字元UUID}B{1字元村代碼}{4位數流水號}
-  const regex = /^([0-9a-f-]{36})B([A-Z])(\d{4})$/i
+  // 格式: {36字元UUID}-{1字元村代碼}{4位數流水號}
+  const regex = /^([0-9a-f-]{36})-([A-Z])(\d{4})$/i
   const match = visitCode.match(regex)
 
   if (!match) return null

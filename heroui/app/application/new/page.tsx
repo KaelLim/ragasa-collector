@@ -383,10 +383,11 @@ export default function NewApplicationPage() {
 
       console.log('📦 提交資料:', applicationData)
 
-      // 4. 插入資料庫（JSONB 格式）
+      // 4. 插入資料庫（JSONB 格式，使用前端生成的 UUID7）
       const { data: insertData, error: insertError } = await supabase
         .from('disaster_applications')
         .insert([{
+          id: sessionUuid,  // 明確指定前端生成的 UUID7
           user_id: user.id,
           application_data: applicationData,
           status: 'submitted'
@@ -398,7 +399,8 @@ export default function NewApplicationPage() {
 
       const newApplicationId = insertData.id
       setApplicationId(newApplicationId)
-      console.log('✅ 申請提交成功！ID:', newApplicationId)
+      console.log('✅ 申請提交成功！UUID7:', newApplicationId)
+      console.log('📅 UUID7 包含時間戳記，可用於追蹤建立時間')
       console.log('📁 JSONB 中的檔案路徑已是正式區（applications/）')
 
       // 5. 清理 localStorage

@@ -193,6 +193,10 @@ export function useVisitRecord() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
+      // 前端生成 UUID7
+      const { v7: uuidv7 } = await import('uuid')
+      const recordId = uuidv7()
+
       // 獲取所有現有的訪視編號，計算流水號
       const { data: existingRecords } = await supabase
         .from('visit_records')
@@ -201,11 +205,12 @@ export function useVisitRecord() {
       const existingCodes = existingRecords?.map(r => r.visit_code) || []
       const sequenceNumber = getNextSequenceNumber(existingCodes, visitData.basic.village)
 
-      // 生成訪視編號
+      // 生成訪視編號（格式: {UUID7}-{村代碼}{流水號}）
       const visitCode = generateVisitCode(applicationId, visitData.basic.village, sequenceNumber)
 
-      // 建立資料庫記錄
+      // 建立資料庫記錄（明確指定前端生成的 UUID7）
       const recordData = {
+        id: recordId,  // 前端生成的 UUID7
         application_id: applicationId,
         visit_code: visitCode,
         user_id: user.id,
