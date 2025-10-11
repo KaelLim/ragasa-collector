@@ -186,7 +186,7 @@ export default function DashboardPage() {
           <MobileMenu showLogout={true} />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
           {/* 新增申請卡片 */}
           <Card
             className="hover:shadow-2xl hover:scale-105 transition-all duration-300 cursor-pointer group border-2 hover:border-primary"
@@ -262,6 +262,33 @@ export default function DashboardPage() {
                 </h3>
                 <p className="text-default-500 leading-relaxed">
                   {t('dashboard.downloadFilesDesc')}
+                </p>
+              </div>
+            </CardBody>
+          </Card>
+
+          {/* 訪視紀錄卡片 */}
+          <Card
+            className="hover:shadow-2xl hover:scale-105 transition-all duration-300 cursor-pointer group border-2 hover:border-warning"
+            isPressable
+            as={Link}
+            href="/visit-records"
+          >
+            <CardBody className="p-8 text-center space-y-6">
+              <div className="flex justify-center">
+                <div className="p-6 bg-warning-100 rounded-full group-hover:bg-warning-200 transition-colors">
+                  {/* Clipboard Check Icon */}
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor" className="text-warning">
+                    <path d="M19,3H14.82C14.4,1.84 13.3,1 12,1C10.7,1 9.6,1.84 9.18,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M12,3A1,1 0 0,1 13,4A1,1 0 0,1 12,5A1,1 0 0,1 11,4A1,1 0 0,1 12,3M7,7H17V5H19V19H5V5H7V7M7.5,13.5L9,12L11,14L15.5,9.5L17,11L11,17L7.5,13.5Z" />
+                  </svg>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <h3 className="text-2xl font-bold group-hover:text-warning transition-colors">
+                  {i18n.language === 'zh-TW' ? '訪視紀錄' : 'Visit Records'}
+                </h3>
+                <p className="text-default-500 leading-relaxed">
+                  {i18n.language === 'zh-TW' ? '記錄訪視過程與結果' : 'Record visit process and results'}
                 </p>
               </div>
             </CardBody>
