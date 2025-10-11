@@ -226,7 +226,7 @@ export function getNextSequenceNumber(
   const villageCode = VILLAGE_CODE_MAP[village] || 'O'
 
   // 過濾出同村的編號
-  const samVillageNumbers = existingCodes
+  const sameVillageNumbers = existingCodes
     .map(parseVisitCode)
     .filter(parsed => parsed && parsed.villageCode === villageCode)
     .map(parsed => parsed!.sequenceNumber)
