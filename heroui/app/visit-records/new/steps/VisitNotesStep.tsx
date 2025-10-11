@@ -128,13 +128,10 @@ export default function VisitNotesStep({
       const selectedMic = availableMicrophones.find(m => m.deviceId === selectedMicrophoneId)
       console.log('🎤 使用麥克風:', selectedMic?.label || '預設麥克風')
 
-      // 使用 MP3 格式（Whisper 更相容）
-      // 檢查瀏覽器是否支援 MP3 編碼
-      const mimeType = MediaRecorder.isTypeSupported('audio/mp4')
-        ? 'audio/mp4'
-        : 'audio/webm'
+      // 使用 WebM 格式（Storage 完全支援，Whisper 也支援）
+      const mimeType = 'audio/webm'
 
-      console.log('🎵 錄音格式:', mimeType)
+      console.log('🎵 錄音格式:', mimeType, '（Storage 相容）')
 
       const mediaRecorder = new MediaRecorder(stream, { mimeType })
       mediaRecorderRef.current = mediaRecorder
@@ -154,7 +151,7 @@ export default function VisitNotesStep({
         // 上傳最後一個段落到 Storage
         try {
           const { supabase } = await import('@/lib/supabase')
-          const extension = mimeType.includes('mp4') ? 'mp4' : 'webm'
+          const extension = 'webm'  // 固定使用 webm
           const fileName = `temp/audio/phase${currentPhase}.${extension}`
 
           console.log(`💾 上傳最後段落: ${fileName}`)
@@ -231,7 +228,7 @@ export default function VisitNotesStep({
 
       try {
         const { supabase } = await import('@/lib/supabase')
-        const extension = audioBlob.type.includes('mp4') ? 'mp4' : 'webm'
+        const extension = 'webm'  // 固定使用 webm
         const fileName = `temp/audio/phase${currentPhase}.${extension}`
 
         const { error: uploadError } = await supabase.storage
@@ -308,9 +305,8 @@ export default function VisitNotesStep({
       console.log('📊 音訊格式:', audioBlob.type)
       console.log('⏱️  段落時長:', formatDuration(duration))
 
-      // 根據 MIME type 決定副檔名
-      const extension = audioBlob.type.includes('mp4') ? 'mp4' : 'webm'
-      const fileName = `recording.${extension}`
+      // 固定使用 webm 副檔名
+      const fileName = 'recording.webm'
 
       const formData = new FormData()
       formData.append('file', audioBlob, fileName)
