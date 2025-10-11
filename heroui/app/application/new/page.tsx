@@ -451,7 +451,7 @@ export default function NewApplicationPage() {
             <div className="flex items-center gap-4">
               <Logo width={40} height={40} />
               <div>
-                <h1 className="text-xl font-bold">救災個資收集申請</h1>
+                <h1 className="text-xl font-bold">發放訪視個資收集申請</h1>
                 <p className="text-sm text-default-500">個資收集同意聲明 (1/3)</p>
               </div>
             </div>
@@ -482,7 +482,7 @@ export default function NewApplicationPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <h1 className="text-lg font-bold">救災個資收集申請</h1>
+              <h1 className="text-lg font-bold">發放訪視個資收集申請</h1>
               <div className="flex justify-between items-center">
                 <p className="text-sm text-default-500">個資授權同意書</p>
                 <span className="text-xs text-default-400">1/3</span>
@@ -661,7 +661,7 @@ export default function NewApplicationPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <h1 className="text-lg font-bold">救災個資收集申請</h1>
+              <h1 className="text-lg font-bold">發放訪視個資收集申請</h1>
               <div className="flex justify-between items-center">
                 <p className="text-sm text-default-500">{t(`application.subStep${currentSubStep}`)}</p>
                 <span className="text-xs text-default-400">{currentSubStep}/5</span>
@@ -2116,7 +2116,7 @@ export default function NewApplicationPage() {
             <div className="flex items-center gap-4">
               <Logo width={40} height={40} />
               <div>
-                <h1 className="text-xl font-bold">救災個資收集申請</h1>
+                <h1 className="text-xl font-bold">發放訪視個資收集申請</h1>
                 <p className="text-sm text-default-500">其他文件上傳 (3/3)</p>
               </div>
             </div>
@@ -2147,7 +2147,7 @@ export default function NewApplicationPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <h1 className="text-lg font-bold">救災個資收集申請</h1>
+              <h1 className="text-lg font-bold">發放訪視個資收集申請</h1>
               <div className="flex justify-between items-center">
                 <p className="text-sm text-default-500">其他文件上傳</p>
                 <span className="text-xs text-default-400">3/3</span>
