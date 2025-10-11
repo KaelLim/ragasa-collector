@@ -184,46 +184,62 @@ export default function VisitNotesStep({
             <h3 className="font-semibold text-lg">
               {i18n.language === 'zh-TW' ? '訪視互動情形記錄' : 'Visit Interaction Notes'}
             </h3>
-            {!isRecording && !isTranscribing && (
-              <Button
-                size="sm"
-                color="primary"
-                variant="flat"
-                onClick={startRecording}
-                startContent={
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
-                  </svg>
-                }
-              >
-                {i18n.language === 'zh-TW' ? '語音輸入' : 'Voice Input'}
-              </Button>
-            )}
-            {isRecording && (
-              <Button
-                size="sm"
-                color="danger"
-                onClick={stopRecording}
-                startContent={
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
-                  </svg>
-                }
-                isLoading={true}
-              >
-                {i18n.language === 'zh-TW' ? '錄音中...' : 'Recording...'}
-              </Button>
-            )}
-            {isTranscribing && (
-              <Button
-                size="sm"
-                color="warning"
-                isLoading={true}
-                disabled
-              >
-                {i18n.language === 'zh-TW' ? '轉錄中...' : 'Transcribing...'}
-              </Button>
-            )}
+            <div className="flex gap-2">
+              {!isRecording && !isTranscribing && (
+                <Button
+                  size="sm"
+                  color="primary"
+                  variant="flat"
+                  onClick={startRecording}
+                  startContent={
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
+                    </svg>
+                  }
+                >
+                  {i18n.language === 'zh-TW' ? '語音輸入' : 'Voice Input'}
+                </Button>
+              )}
+              {isRecording && (
+                <>
+                  <Button
+                    size="sm"
+                    color="primary"
+                    variant="flat"
+                    disabled
+                    startContent={
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="animate-pulse">
+                        <circle cx="12" cy="12" r="8" fill="currentColor" />
+                      </svg>
+                    }
+                  >
+                    {i18n.language === 'zh-TW' ? '錄音中' : 'Recording'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    color="danger"
+                    onClick={stopRecording}
+                    startContent={
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M18,18H6V6H18V18Z" />
+                      </svg>
+                    }
+                  >
+                    {i18n.language === 'zh-TW' ? '停止錄音' : 'Stop'}
+                  </Button>
+                </>
+              )}
+              {isTranscribing && (
+                <Button
+                  size="sm"
+                  color="warning"
+                  isLoading={true}
+                  disabled
+                >
+                  {i18n.language === 'zh-TW' ? '轉錄中...' : 'Transcribing...'}
+                </Button>
+              )}
+            </div>
           </div>
 
           <Textarea
