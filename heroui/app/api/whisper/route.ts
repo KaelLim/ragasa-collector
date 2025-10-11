@@ -2,13 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { config as dotenvConfig } from 'dotenv'
 import path from 'path'
 import { OpenAI } from 'openai'
-import { Converter } from 'opencc-js'
 
 // 載入 .env.stt 配置（Whisper STT 專用）
 dotenvConfig({ path: path.join(process.cwd(), '.env.stt') })
-
-// 初始化簡繁轉換器（簡體 → 繁體台灣）
-const converter = Converter({ from: 'cn', to: 'tw' })
 
 /**
  * Whisper 語音轉文字 API
@@ -28,6 +24,8 @@ const converter = Converter({ from: 'cn', to: 'tw' })
 
 const XINFERENCE_API_URL = process.env.XINFERENCE_API_URL || 'https://tcm2studio.tzuchi-org.tw/v1'
 const XINFERENCE_API_KEY = process.env.XINFERENCE_API_KEY || ''
+const TEXT_PROCESSING_MODEL = process.env.TEXT_PROCESSING_MODEL || 'Qwen3-Instruct'
+const TEXT_PROCESSING_ENABLED = process.env.TEXT_PROCESSING_ENABLED !== 'false'
 
 // 建立 OpenAI Client（指向 Xinference 伺服器）
 const client = new OpenAI({
@@ -35,9 +33,10 @@ const client = new OpenAI({
   baseURL: XINFERENCE_API_URL
 })
 
-console.log('[Whisper API] OpenAI Client 初始化:')
-console.log('  Base URL:', XINFERENCE_API_URL)
-console.log('  API Key:', XINFERENCE_API_KEY ? '已設定 (' + XINFERENCE_API_KEY.substring(0, 15) + '...)' : '❌ 未設定')
+console.log('[Whisper API] 初始化:')
+console.log('  Xinference URL:', XINFERENCE_API_URL)
+console.log('  API Key:', XINFERENCE_API_KEY ? '已設定' : '❌ 未設定')
+console.log('  文字處理 LLM:', TEXT_PROCESSING_MODEL, TEXT_PROCESSING_ENABLED ? '✅ 啟用' : '❌ 停用')
 
 export async function POST(request: NextRequest) {
   try {
@@ -88,36 +87,63 @@ export async function POST(request: NextRequest) {
 
     const processingTime = ((Date.now() - startTime) / 1000).toFixed(2)
 
-    console.log('✅ OpenAI SDK 調用成功')
+    console.log('✅ Whisper 轉錄完成')
     console.log(`⏱️  Whisper 處理時間: ${processingTime} 秒`)
     console.log(`📝 原始轉錄字數: ${result.text?.length || 0} 字`)
     console.log(`📄 原始內容（簡體）:`, result.text?.substring(0, 50) + '...')
 
-    // 使用 OpenCC 簡繁轉換（簡體 → 繁體台灣）
-    console.log('🔄 開始簡繁轉換...')
-    const traditionalText = converter(result.text)
+    // 如果啟用文字處理，使用 Qwen3-Instruct 優化
+    let finalText = result.text
 
-    console.log(`📄 轉換後內容（繁體）:`, traditionalText?.substring(0, 50) + '...')
-    console.log('✅ 簡繁轉換完成！')
+    if (TEXT_PROCESSING_ENABLED && result.text) {
+      console.log('🤖 使用 Qwen3-Instruct 進行文字優化...')
+      console.log('   - 簡繁轉換')
+      console.log('   - 標點符號標注')
+      console.log('   - 語句優化')
 
-    // 驗證轉換結果
-    const stillHasSimplified = /[\u4e00-\u9fa5]/.test(traditionalText) && (
-      traditionalText.includes('这') || traditionalText.includes('们') || traditionalText.includes('说')
-    )
+      const optimizationStartTime = Date.now()
 
-    if (stillHasSimplified) {
-      console.warn('⚠️  警告：轉換後仍有簡體字！')
-    } else {
-      console.log('✅ 已成功轉換為繁體中文')
+      try {
+        // 調用 Qwen3-Instruct 優化文字
+        const optimizationResult = await client.chat.completions.create({
+          model: TEXT_PROCESSING_MODEL,
+          messages: [
+            {
+              role: 'system',
+              content: '你是專業的文字編輯助手。請將簡體中文轉換為繁體中文（台灣用語），並標注適當的標點符號，優化語句通順度。保持原意，不要增減內容。'
+            },
+            {
+              role: 'user',
+              content: `請優化以下語音轉錄文字：\n\n${result.text}`
+            }
+          ],
+          temperature: 0.3,  // 較低溫度確保準確轉換
+          max_tokens: 4000
+        })
+
+        finalText = optimizationResult.choices[0]?.message?.content || result.text
+
+        const optimizationTime = ((Date.now() - optimizationStartTime) / 1000).toFixed(2)
+        console.log(`✅ Qwen3 文字優化完成（${optimizationTime} 秒）`)
+        console.log(`📄 優化後內容:`, finalText.substring(0, 50) + '...')
+
+      } catch (optimizationError) {
+        console.error('❌ 文字優化失敗，返回原始轉錄:', optimizationError)
+        // 失敗時返回原始簡體文字
+      }
     }
 
+    const totalProcessingTime = ((Date.now() - startTime) / 1000).toFixed(2)
+
     return NextResponse.json({
-      text: traditionalText,  // 返回繁體中文文字
-      originalText: result.text,  // 保留原始簡體（供除錯）
-      language: 'zh-TW',  // 標示為繁體中文
-      processingTime: parseFloat(processingTime),
+      text: finalText,  // 返回優化後的繁體中文
+      originalText: result.text,  // 保留原始簡體
+      language: 'zh-TW',
+      processingTime: parseFloat(totalProcessingTime),
+      whisperTime: parseFloat(processingTime),
       model: `whisper-${model}-mlx`,
-      usedSDK: 'OpenAI Client + OpenCC'
+      textProcessor: TEXT_PROCESSING_ENABLED ? TEXT_PROCESSING_MODEL : null,
+      usedSDK: TEXT_PROCESSING_ENABLED ? 'OpenAI Client + Qwen3-Instruct' : 'OpenAI Client'
     })
 
   } catch (error: any) {
