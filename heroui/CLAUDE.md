@@ -3,12 +3,39 @@
 ## 📌 系統資訊
 
 **系統名稱**: 慈濟發放訪視系統
-**目前版本**: V1.0.0
+**目前版本**: V1.0.1
 **版本格式**: V[大升級].[功能更新].[Debug]
 
 ---
 
 ## 📋 系統更新歷程
+
+### V1.0.1 (2025-10-11)
+**Debug 修復：申請列表資料顯示**
+
+#### 問題修復
+- 🐛 **申請列表卡片空白問題**：列表頁面無法顯示 ID、電話、地址資料
+- 🔍 **根本原因**：資料庫架構從平面結構轉換為 JSONB 格式，列表頁未同步更新
+
+#### 修復內容
+1. **卡片視圖** (`app/applications/page.tsx`)
+   - 更新姓名欄位：`application.victim_name` → `application_data.victim.name`
+   - 更新身分證欄位：`application.id_number` → `application_data.victim.idNumber`
+   - 更新電話欄位：`application.phone_number` → `application_data.victim.phone`
+   - 更新地址欄位：`application.address` → `application_data.victim.address`
+
+2. **表格視圖** (同檔案)
+   - 同步更新所有欄位的存取路徑
+
+#### 技術變更
+- 🐛 列表頁面 JSONB 欄位路徑修正
+- ✅ 列表與詳情頁資料顯示一致性恢復
+
+#### 相關 Commit
+- `d67e587` - fix: 修復申請列表頁面欄位顯示問題
+- `6556349` - docs: 更新開發記錄
+
+---
 
 ### V1.0.0 (2025-10-11)
 **重大更新：系統定位轉型**
