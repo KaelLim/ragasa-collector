@@ -67,11 +67,16 @@ export async function POST(request: NextRequest) {
     console.log('   - 檔案:', audioFile.name, '類型:', audioFile.type)
 
     // 調用 OpenAI SDK（相容 Xinference）
+    // 使用 initial_prompt 強制繁體中文輸出
+    const traditionalChinesePrompt = "請以繁體中文輸出下方語音內容。"
+
+    console.log('💡 使用 initial_prompt 強制繁體中文:', traditionalChinesePrompt)
+
     const result = await client.audio.transcriptions.create({
       model: `whisper-${model}-mlx`,
       file: audioFile,  // 直接使用 File 物件
       language: language,  // ⭐ 繁體中文輸出的關鍵參數
-      ...(prompt ? { prompt } : {})
+      prompt: prompt || traditionalChinesePrompt  // ⭐⭐ 強制繁體中文的提示詞
     })
 
     const processingTime = ((Date.now() - startTime) / 1000).toFixed(2)
