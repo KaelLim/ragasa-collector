@@ -53,28 +53,33 @@ export async function POST(request: NextRequest) {
     console.log('🎙️ Whisper STT 請求:')
     console.log('   模型:', model)
     console.log('   語言參數:', language, '⭐ (應輸出繁體中文)')
-    console.log('   檔案:', audioFile.name, `(${Math.round(audioFile.size / 1024)} KB)`)
+    console.log('   檔案名稱:', audioFile.name)
+    console.log('   檔案類型:', audioFile.type)
+    console.log('   檔案大小:', audioFile.size, 'bytes', `(${Math.round(audioFile.size / 1024)} KB)`)
 
-    // 使用 OpenAI Client SDK（Xinference 相容模式）
-    console.log('🔧 使用 OpenAI Client SDK 調用 Xinference')
+    // 檢查檔案有效性
+    if (audioFile.size === 0) {
+      console.error('❌ 音訊檔案大小為 0')
+      return NextResponse.json(
+        { error: '音訊檔案無效（大小為 0）' },
+        { status: 400 }
+      )
+    }
+
+    if (audioFile.size < 1000) {
+      console.warn('⚠️  音訊檔案太小:', audioFile.size, 'bytes，可能導致轉錄失敗')
+    }
+
+    // 使用 initial_prompt 強制繁體中文輸出
+    const traditionalChinesePrompt = "請以繁體中文輸出下方語音內容。"
+    console.log('💡 使用 initial_prompt 強制繁體中文:', traditionalChinesePrompt)
 
     const startTime = Date.now()
 
-    // 直接使用 File 物件（Next.js FormData 已經是 File 類型）
-    console.log('📤 準備調用 Xinference:')
-    console.log('   - 模型:', `whisper-${model}-mlx`)
-    console.log('   - 語言:', language)
-    console.log('   - 檔案:', audioFile.name, '類型:', audioFile.type)
-
     // 調用 OpenAI SDK（相容 Xinference）
-    // 使用 initial_prompt 強制繁體中文輸出
-    const traditionalChinesePrompt = "請以繁體中文輸出下方語音內容。"
-
-    console.log('💡 使用 initial_prompt 強制繁體中文:', traditionalChinesePrompt)
-
     const result = await client.audio.transcriptions.create({
       model: `whisper-${model}-mlx`,
-      file: audioFile,  // 直接使用 File 物件
+      file: audioFile,
       language: language,  // ⭐ 繁體中文輸出的關鍵參數
       prompt: prompt || traditionalChinesePrompt  // ⭐⭐ 強制繁體中文的提示詞
     })
@@ -82,7 +87,6 @@ export async function POST(request: NextRequest) {
     const processingTime = ((Date.now() - startTime) / 1000).toFixed(2)
 
     console.log('✅ OpenAI SDK 調用成功')
-
     console.log('✅ 轉錄完成')
     console.log(`⏱️  處理時間: ${processingTime} 秒`)
     console.log(`📝 轉錄字數: ${result.text?.length || 0} 字`)
@@ -104,19 +108,26 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       text: result.text,
-      language: language,  // OpenAI SDK 不返回 language，使用請求值
+      language: language,
       processingTime: parseFloat(processingTime),
       model: `whisper-${model}-mlx`,
-      usedSDK: 'OpenAI Client'  // 標示使用 SDK
+      usedSDK: 'OpenAI Client'
     })
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ Whisper API 錯誤:', error)
+    console.error('錯誤詳情:', {
+      message: error?.message,
+      status: error?.status,
+      type: error?.type,
+      code: error?.code
+    })
 
     return NextResponse.json(
       {
         error: '語音轉文字失敗',
-        details: error instanceof Error ? error.message : '未知錯誤'
+        details: error instanceof Error ? error.message : '未知錯誤',
+        status: error?.status || 500
       },
       { status: 500 }
     )
