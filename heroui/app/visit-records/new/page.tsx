@@ -19,6 +19,7 @@ import HouseholdNeedsStep from './steps/HouseholdNeedsStep'
 import StatusMarksStep from './steps/StatusMarksStep'
 import VisitNotesStep from './steps/VisitNotesStep'
 import ReceiptStep from './steps/ReceiptStep'
+import ConfirmationStep from './steps/ConfirmationStep'
 
 // 步驟定義
 type VisitStep = 'basic-info' | 'household-needs' | 'status-marks' | 'visit-notes' | 'receipt' | 'confirmation'
@@ -288,7 +289,14 @@ function VisitRecordFormContent() {
           />
         )}
 
-        {/* 其他步驟佔位... */}
+        {currentStep === 'confirmation' && (
+          <ConfirmationStep
+            formData={formData}
+            applicationData={applicationData}
+            visitCode={visitCode}
+            onPrev={handlePrevStep}
+          />
+        )}
       </div>
     </div>
   )
