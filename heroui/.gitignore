@@ -40,6 +40,7 @@ package-lock.json
 bun.lockb
 # Environment files with API keys
 .env.ocr
+.env.stt
 .env.local
 .env.*.local
 

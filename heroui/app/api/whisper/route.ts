@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { config as dotenvConfig } from 'dotenv'
+import path from 'path'
+
+// 載入 .env.stt 配置（Whisper STT 專用）
+dotenvConfig({ path: path.join(process.cwd(), '.env.stt') })
 
 /**
  * Whisper 語音轉文字 API
@@ -16,6 +21,10 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const XINFERENCE_API_URL = process.env.XINFERENCE_API_URL || 'https://tcm2studio.tzuchi-org.tw/v1'
 const XINFERENCE_API_KEY = process.env.XINFERENCE_API_KEY || ''
+
+console.log('[Whisper API] 配置載入:')
+console.log('  API URL:', XINFERENCE_API_URL)
+console.log('  API Key:', XINFERENCE_API_KEY ? '已設定 (' + XINFERENCE_API_KEY.substring(0, 15) + '...)' : '❌ 未設定')
 
 export async function POST(request: NextRequest) {
   try {
