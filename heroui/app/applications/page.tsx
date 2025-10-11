@@ -289,7 +289,7 @@ export default function ApplicationsPage() {
                         {i18n.language === 'zh-TW' ? '申請人' : 'Applicant'}
                       </p>
                       <p className="text-xs font-medium">
-                        {application.victim_name}
+                        {(application as any).application_data?.victim?.name || '-'}
                       </p>
                     </div>
                   )}
@@ -302,13 +302,17 @@ export default function ApplicationsPage() {
                       <span className="text-default-500">
                         {i18n.language === 'zh-TW' ? '身分證' : 'ID'}:
                       </span>
-                      <span className="ml-2">{application.id_number}</span>
+                      <span className="ml-2">
+                        {(application as any).application_data?.victim?.idNumber || '-'}
+                      </span>
                     </div>
                     <div>
                       <span className="text-default-500">
                         {i18n.language === 'zh-TW' ? '電話' : 'Phone'}:
                       </span>
-                      <span className="ml-2">{application.phone_number}</span>
+                      <span className="ml-2">
+                        {(application as any).application_data?.victim?.phone || '-'}
+                      </span>
                     </div>
                   </div>
 
@@ -316,7 +320,9 @@ export default function ApplicationsPage() {
                     <span className="text-default-500">
                       {i18n.language === 'zh-TW' ? '地址' : 'Address'}:
                     </span>
-                    <span className="ml-2">{application.address}</span>
+                    <span className="ml-2">
+                      {(application as any).application_data?.victim?.address || '-'}
+                    </span>
                   </div>
 
                   <div className="flex justify-between items-center pt-2 border-t border-divider">
@@ -372,17 +378,23 @@ export default function ApplicationsPage() {
               <TableRow key={application.id}>
                 <TableCell>
                   <div className="flex flex-col">
-                    <span className="font-medium">{application.victim_name}</span>
+                    <span className="font-medium">
+                      {(application as any).application_data?.victim?.name || '-'}
+                    </span>
                     <span className="text-xs text-default-400 font-mono">
                       {application.id.slice(0, 8)}...
                     </span>
                   </div>
                 </TableCell>
                 <TableCell>
-                  <span className="font-mono text-sm">{application.id_number}</span>
+                  <span className="font-mono text-sm">
+                    {(application as any).application_data?.victim?.idNumber || '-'}
+                  </span>
                 </TableCell>
                 <TableCell>
-                  <span className="text-sm">{application.phone_number}</span>
+                  <span className="text-sm">
+                    {(application as any).application_data?.victim?.phone || '-'}
+                  </span>
                 </TableCell>
                 <TableCell>
                   <span className="text-xs">{formatDate(application.created_at)}</span>
