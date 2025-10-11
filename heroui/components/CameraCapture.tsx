@@ -113,6 +113,15 @@ export default function CameraCapture({
     handleOpenCamera()
   }
 
+  // 監聽 currentImage prop 變化，同步內部狀態
+  useEffect(() => {
+    if (currentImage === null || currentImage === undefined) {
+      setCapturedImage(null)
+    } else if (currentImage !== capturedImage) {
+      setCapturedImage(currentImage)
+    }
+  }, [currentImage])
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file && file.type.startsWith('image/')) {
