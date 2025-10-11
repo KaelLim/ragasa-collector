@@ -97,25 +97,126 @@ temp/UUID7_signature.png (可選)
 
 ---
 
-## 🔄 當前開發狀態
+## 🔄 當前開發狀態（2025-10-11 更新）
 
-**OpenMemory 當前狀態記憶**: `87ab21e3-f35b-4833-af43-d27f36824d54`
+**OpenMemory 狀態記憶**: `87ab21e3-f35b-4833-af43-d27f36824d54`
 
-### ⚠️ 待修復問題
-- **JSX 語法錯誤**: `app/application/new/page.tsx` 第 643 行
-- **原因**: 行首 `{` 表達式缺少縮排
-- **影響**: 申請表單頁面無法載入
+### ✅ 本次會話已完成
 
-### ✅ 已創建待整合
-- `components/ContactPhoneInput.tsx` - 雙手機號輸入組件
+#### 1. JSX 語法錯誤修復 ✅
+- **問題**: page.tsx 第 642 行 "Unexpected token div"
+- **根因**: application-form 的 return 缺少 Fragment 包裹
+- **修復**:
+  - 加上 `<>...</>` Fragment
+  - 刪除 126 行永遠不執行的舊代碼（行 1700-1825）
+  - 移除重複的變數定義
+- **結果**: ✅ HTTP 200 OK，頁面正常載入
+- **Commit**: `27d8e0f`, `56bbb32`
 
-### 📋 下次會話優先工作
-1. 系統性修復 JSX 語法錯誤
-2. 整合 ContactPhoneInput 組件
-3. 完整測試雙手機號流程
-4. 考慮重構 page.tsx（2238 行過大）
+#### 2. UI 改進 ✅
+- **切割預覽隱藏**: 使用者反饋界面過於複雜
+  - Commit: `45fd0b9`
+- **戶口名簿多頁界面優化**: 獨立的「新增頁面」Card
+  - Commit: `9981de3`, `f06eff9`
+
+#### 3. 身分證 OCR 驗證機制 🚧
+- **已實現**:
+  - OCR 結果自動比對戶口名簿戶長資料
+  - 不一致時設置 showOCRConfirmModal = true
+  - 調試日誌完整輸出
+- **問題**: ⚠️ Modal 無法彈出（邏輯已觸發但 UI 未顯示）
+- **日誌確認**: Console 顯示「⚠️ 資料不一致，彈出確認對話框」
+- **Commit**: `6738d96`, `3c0a7d6`
+
+#### 4. Serena MCP 配置修復 ✅
+- **問題**: 程編一直使用 `/Users/chih-hungtseng/projects/MCP-Server-DEV` 作為根目錄
+- **修復**:
+  - 建立 `.serena/project.yml`（專案配置）
+  - 建立專案專用 `serena-wrapper.sh`
+  - 重新註冊到 Claude Code
+- **狀態**: ⚠️ 需要重啟 Claude Code 生效
+- **Commit**: `cfd987a`
+
+### 🚨 待修復問題（優先級排序）
+
+#### P0 - 緊急
+1. **Modal 無法彈出問題** 🔴
+   - **檔案**: `app/application/new/page.tsx`
+   - **現象**:
+     - Console 顯示「⚠️ 資料不一致，彈出確認對話框」
+     - `showOCRConfirmModal` state 設為 true
+     - 但 Modal UI 沒有顯示
+   - **位置**:
+     - setState: 行 776
+     - Modal 定義: 原本在行 2210-2334（已被錯誤修復破壞）
+   - **可能原因**:
+     - Modal 渲染邏輯位置錯誤
+     - 需要在 application-form 的 return 內部渲染
+   - **調試資訊**: 已加入完整的 console.log
+
+#### P1 - 高優先
+2. **Serena 程編配置** 🟡
+   - **狀態**: 配置已完成，需重啟 Claude Code
+   - **文件**: `.serena/project.yml`, `serena-wrapper.sh`
+
+### 📊 系統狀態
+
+#### Git 資訊
+- **Branch**: `feature/week1-component-split`
+- **Latest Commit**: `cfd987a` - Serena 配置
+- **檔案狀態**:
+  - page.tsx: 2334 行
+  - 所有 OCR 功能正常運作
+  - HTTP 200 OK
+
+#### 開發伺服器
+- **URL**: http://localhost:3000
+- **狀態**: 運行中（Shell ID: c5e30e）
+- **編譯**: 成功
+
+#### 測試狀態
+- ✅ 戶口名簿 OCR（表頭 + 成員）
+- ✅ 身分證 OCR（正反面）
+- ✅ 代理人身分證 OCR
+- ✅ 銀行存摺 OCR
+- ✅ 資料提交（除 signatureUrl 已修復）
+
+### 📋 重啟後立即工作
+
+#### 第一優先
+1. **修復 Modal 彈出問題**（使用標準修復流程）
+   - 程編：定位 Modal 渲染位置
+   - 分析師：分析 React 渲染邏輯
+   - 工具人：驗證修復方案
+   - 總協：執行修復
+
+#### 後續工作
+2. 測試 Modal 完整流程（是/否 兩個選項）
+3. 驗證身分證 OCR 校正功能
+4. 完整端到端測試
+
+### 🔧 技術債務記錄
+- Week 1 重構計劃（已暫停，優先修復功能）
+- TypeScript 嚴格模式（已放寬，Week 2 恢復）
+- page.tsx 仍是 2334 行巨型組件
 
 ---
 
-*最後更新: 2025-10-10 下午*
-*此檔案由 Claude Code 自動載入系統產生*
+## 📝 重要 Commits 記錄（本次會話）
+
+```
+cfd987a - feat: 新增 Serena MCP 專案配置
+3c0a7d6 - debug: 新增身分證 OCR 驗證調試日誌
+6738d96 - feat: 新增身分證 OCR 資料驗證機制
+f06eff9 - fix: 修正新增頁面 Card 顯示條件
+9981de3 - feat: 改進戶口名簿多頁掃描界面
+45fd0b9 - fix: 隱藏切割預覽功能
+56bbb32 - fix: 修復 signatureUrl 變數名稱錯誤
+27d8e0f - fix: 修復 page.tsx JSX 語法錯誤（行 642 & 1701）
+```
+
+---
+
+*最後更新: 2025-10-11 上午*
+*會話 Token 使用: ~560K/1M*
+*下次重啟: 請先修復 Modal 彈出問題*
