@@ -77,6 +77,8 @@ function VisitRecordFormContent() {
     try {
       setLoading(true)
 
+      console.log('🔍 載入申請資料，applicationId:', applicationId)
+
       // 載入個資主檔
       const { data: application, error } = await supabase
         .from('disaster_applications')
@@ -84,8 +86,16 @@ function VisitRecordFormContent() {
         .eq('id', applicationId)
         .single()
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ 資料庫查詢錯誤:', error)
+        throw new Error(`資料庫查詢失敗: ${error.message || JSON.stringify(error)}`)
+      }
 
+      if (!application) {
+        throw new Error('找不到申請資料')
+      }
+
+      console.log('✅ 申請資料載入成功:', application.id)
       setApplicationData(application)
 
       // 提取資料
@@ -93,14 +103,24 @@ function VisitRecordFormContent() {
       const address = application.application_data?.victim?.address || ''
       const householdHeadName = application.application_data?.household?.householdHead?.name || victimName
 
+      console.log('📋 受災鄉親:', victimName)
+      console.log('📍 地址:', address)
+
       // 自動判讀村名
       const detectedVillage = detectVillageFromAddress(address)
+      console.log('🏘️ 判讀村名:', detectedVillage)
 
       // 生成訪視編號
+      console.log('🔢 開始生成訪視編號...')
       const allRecords = await fetchVisitRecords()
+      console.log('📊 現有訪視記錄數:', allRecords.length)
+
       const existingCodes = allRecords.map(r => r.visit_code)
       const sequenceNumber = getNextSequenceNumber(existingCodes, detectedVillage)
+      console.log('🔢 計算流水號:', sequenceNumber)
+
       const generatedVisitCode = generateVisitCode(applicationId!, detectedVillage, sequenceNumber)
+      console.log('✅ 訪視編號已生成:', generatedVisitCode)
 
       setVisitCode(generatedVisitCode)
 
