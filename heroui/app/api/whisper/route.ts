@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
     const model = formData.get('model') as string || 'large-v3-turbo'
     const language = formData.get('language') as string || 'zh'
     const prompt = formData.get('prompt') as string || ''
+    const householdData = formData.get('householdData') as string || ''  // 戶口名簿資料（JSON）
 
     if (!audioFile) {
       return NextResponse.json(
@@ -97,24 +98,86 @@ export async function POST(request: NextRequest) {
 
     if (TEXT_PROCESSING_ENABLED && result.text) {
       console.log('🤖 使用 Qwen3-Instruct 進行文字優化...')
-      console.log('   - 簡繁轉換')
+      console.log('   - 簡繁轉換（台灣用語）')
       console.log('   - 標點符號標注')
-      console.log('   - 語句優化')
+      console.log('   - 數字轉中文')
+      console.log('   - 錯別字校正')
+      if (householdData) {
+        console.log('   - 比對戶口名簿資料')
+      }
 
       const optimizationStartTime = Date.now()
 
       try {
+        // 建立完整的系統提示詞（慈濟文字編輯規範）
+        const systemPrompt = `# 角色與背景
+我是一位在慈濟服務多年的資深文字編輯，主要負責整理逐字稿。我們採用臺灣的繁體中文進行所有文字編輯工作，注重文字的精確性和一致性。
+
+# 工作目標
+1. 將文稿中的阿拉伯數字轉換為正體中文數字
+2. 根據提供的一般詞庫進行專業用語的統一校正
+3. 根據提供的事件描述，對逐字稿進行修潤和錯別字校正
+${householdData ? '4. 比對戶口名簿資料，遇到人名等相似字時以戶口名簿為準' : ''}
+
+# 具體要求
+
+## 數字轉換規則
+需要將所有出現的阿拉伯數字[0-9]轉換為對應的中文數字：
+- 0 → 零
+- 1 → 一
+- 2 → 二
+- 3 → 三
+- 4 → 四
+- 5 → 五
+- 6 → 六
+- 7 → 七
+- 8 → 八
+- 9 → 九
+
+# 輸出格式要求
+1. 校正後的文稿應保持原有的段落結構
+2. 原稿經和事件摘要比對後發現錯字，依事件摘要文準，要替換正確的字
+3. 原稿除增加錯字修正及字詞替換建議，應盡力保持原文逐字呈現，不要摘要，也不要整理
+
+# 品質檢查重點
+1. 確保所有數字都已正確轉換
+2. 詞彙替換後的文意通順
+
+# 注意事項
+1. 保持文稿的原意不變
+2. 注意上下文的連貫性
+3. 遇到特殊情況應做標註說明
+4. 需要特別注意日期、時間等數字的處理原則`
+
+        // 建立用戶訊息
+        let userMessage = `請依照上述規範，優化以下語音轉錄文字：\n\n${result.text}`
+
+        // 如果有戶口名簿資料，加入參考
+        if (householdData) {
+          try {
+            const household = JSON.parse(householdData)
+            userMessage += `\n\n---\n參考資料（戶口名簿）：\n`
+            userMessage += `戶長姓名：${household.householdHead?.name || ''}\n`
+            if (household.members && household.members.length > 0) {
+              userMessage += `成員姓名：${household.members.map((m: any) => m.name).join('、')}\n`
+            }
+            userMessage += `\n請注意：如轉錄文字中出現相似字（如瑩/螢、燕/艷），請以戶口名簿為準。`
+          } catch (e) {
+            console.warn('⚠️  戶口名簿資料解析失敗')
+          }
+        }
+
         // 調用 Qwen3-Instruct 優化文字
         const optimizationResult = await client.chat.completions.create({
           model: TEXT_PROCESSING_MODEL,
           messages: [
             {
               role: 'system',
-              content: '你是專業的文字編輯助手。請將簡體中文轉換為繁體中文（台灣用語），並標注適當的標點符號，優化語句通順度。保持原意，不要增減內容。'
+              content: systemPrompt
             },
             {
               role: 'user',
-              content: `請優化以下語音轉錄文字：\n\n${result.text}`
+              content: userMessage
             }
           ],
           temperature: 0.3,  // 較低溫度確保準確轉換

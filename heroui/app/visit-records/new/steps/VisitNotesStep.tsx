@@ -12,6 +12,7 @@ import CameraCapture from '@/components/CameraCapture'
 
 interface VisitNotesStepProps {
   formData: Partial<VisitRecordData>
+  applicationData: any  // 個資主檔資料（包含戶口名簿）
   setFormData: React.Dispatch<React.SetStateAction<Partial<VisitRecordData>>>
   onNext: () => void
   onPrev: () => void
@@ -19,6 +20,7 @@ interface VisitNotesStepProps {
 
 export default function VisitNotesStep({
   formData,
+  applicationData,
   setFormData,
   onNext,
   onPrev
@@ -261,7 +263,17 @@ export default function VisitNotesStep({
       const formData = new FormData()
       formData.append('file', audioBlob, fileName)
       formData.append('model', 'large-v3-turbo')
-      formData.append('language', 'zh')  // ⭐ 關鍵：輸出繁體中文
+      formData.append('language', 'zh')
+
+      // 傳遞戶口名簿資料供 Qwen3 比對
+      if (applicationData?.application_data?.household) {
+        const householdInfo = {
+          householdHead: applicationData.application_data.household.householdHead,
+          members: applicationData.application_data.household.members || []
+        }
+        formData.append('householdData', JSON.stringify(householdInfo))
+        console.log('📋 已加入戶口名簿資料供比對')
+      }
 
       console.log('📤 發送檔案:', fileName, '大小:', Math.round(audioBlob.size / 1024), 'KB')
 

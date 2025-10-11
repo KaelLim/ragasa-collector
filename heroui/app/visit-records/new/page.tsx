@@ -273,6 +273,7 @@ function VisitRecordFormContent() {
         {currentStep === 'visit-notes' && (
           <VisitNotesStep
             formData={formData}
+            applicationData={applicationData}
             setFormData={setFormData}
             onNext={handleNextStep}
             onPrev={handlePrevStep}
