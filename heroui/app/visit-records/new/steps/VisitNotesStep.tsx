@@ -1,9 +1,11 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Card, CardBody } from '@heroui/card'
 import { Button } from '@heroui/button'
 import { Textarea } from '@heroui/input'
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@heroui/modal'
+import { Select, SelectItem } from '@heroui/select'
 import { useTranslation } from 'react-i18next'
 import type { VisitRecordData } from '@/lib/visit-record-types'
 import CameraCapture from '@/components/CameraCapture'
@@ -33,13 +35,58 @@ export default function VisitNotesStep({
   const [currentPhoto, setCurrentPhoto] = useState<File | null>(null)
   const [photoType, setPhotoType] = useState<'interaction' | 'other' | null>(null)
 
+  // 麥克風設定
+  const [availableMicrophones, setAvailableMicrophones] = useState<MediaDeviceInfo[]>([])
+  const [selectedMicrophoneId, setSelectedMicrophoneId] = useState<string>('')
+  const [isMicSettingsOpen, setIsMicSettingsOpen] = useState(false)
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
+
+  // 載入可用的麥克風列表
+  useEffect(() => {
+    loadMicrophones()
+  }, [])
+
+  const loadMicrophones = async () => {
+    try {
+      // 先請求權限
+      await navigator.mediaDevices.getUserMedia({ audio: true })
+
+      // 獲取所有音訊輸入裝置
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const microphones = devices.filter(device => device.kind === 'audioinput')
+
+      setAvailableMicrophones(microphones)
+
+      // 如果尚未選擇，使用第一個麥克風
+      if (!selectedMicrophoneId && microphones.length > 0) {
+        setSelectedMicrophoneId(microphones[0].deviceId)
+      }
+
+      console.log('🎤 可用麥克風:', microphones.length)
+      microphones.forEach((mic, index) => {
+        console.log(`  ${index + 1}. ${mic.label || `麥克風 ${index + 1}`} (${mic.deviceId.substring(0, 8)}...)`)
+      })
+    } catch (error) {
+      console.error('❌ 無法獲取麥克風列表:', error)
+    }
+  }
 
   // 開始錄音
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // 使用選擇的麥克風
+      const constraints: MediaStreamConstraints = {
+        audio: selectedMicrophoneId
+          ? { deviceId: { exact: selectedMicrophoneId } }
+          : true
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints)
+
+      const selectedMic = availableMicrophones.find(m => m.deviceId === selectedMicrophoneId)
+      console.log('🎤 使用麥克風:', selectedMic?.label || '預設麥克風')
       const mediaRecorder = new MediaRecorder(stream)
       mediaRecorderRef.current = mediaRecorder
       audioChunksRef.current = []
@@ -186,19 +233,34 @@ export default function VisitNotesStep({
             </h3>
             <div className="flex gap-2">
               {!isRecording && !isTranscribing && (
-                <Button
-                  size="sm"
-                  color="primary"
-                  variant="flat"
-                  onClick={startRecording}
-                  startContent={
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
-                    </svg>
-                  }
-                >
-                  {i18n.language === 'zh-TW' ? '語音輸入' : 'Voice Input'}
-                </Button>
+                <>
+                  <Button
+                    size="sm"
+                    color="primary"
+                    variant="flat"
+                    onClick={startRecording}
+                    startContent={
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
+                      </svg>
+                    }
+                  >
+                    {i18n.language === 'zh-TW' ? '語音輸入' : 'Voice Input'}
+                  </Button>
+                  {availableMicrophones.length > 1 && (
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      isIconOnly
+                      onClick={() => setIsMicSettingsOpen(true)}
+                      title={i18n.language === 'zh-TW' ? '麥克風設定' : 'Microphone Settings'}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z" />
+                      </svg>
+                    </Button>
+                  )}
+                </>
               )}
               {isRecording && (
                 <>
@@ -402,6 +464,72 @@ export default function VisitNotesStep({
           </Button>
         </div>
       </CardBody>
+
+      {/* 麥克風設定 Modal */}
+      <Modal
+        isOpen={isMicSettingsOpen}
+        onClose={() => setIsMicSettingsOpen(false)}
+        size="md"
+      >
+        <ModalContent>
+          <ModalHeader>
+            <h3 className="text-lg font-bold">
+              {i18n.language === 'zh-TW' ? '麥克風設定' : 'Microphone Settings'}
+            </h3>
+          </ModalHeader>
+          <ModalBody>
+            <div className="space-y-4">
+              <p className="text-sm text-default-600">
+                {i18n.language === 'zh-TW'
+                  ? '偵測到多支麥克風，請選擇要使用的麥克風裝置'
+                  : 'Multiple microphones detected, please select the device to use'}
+              </p>
+
+              <Select
+                label={i18n.language === 'zh-TW' ? '選擇麥克風' : 'Select Microphone'}
+                aria-label="麥克風選擇"
+                selectedKeys={selectedMicrophoneId ? [selectedMicrophoneId] : []}
+                onSelectionChange={(keys) => {
+                  const deviceId = Array.from(keys)[0] as string
+                  setSelectedMicrophoneId(deviceId)
+                  console.log('🎤 已選擇麥克風:', availableMicrophones.find(m => m.deviceId === deviceId)?.label)
+                }}
+                classNames={{
+                  trigger: "bg-default-100"
+                }}
+              >
+                {availableMicrophones.map((mic, index) => (
+                  <SelectItem key={mic.deviceId} value={mic.deviceId}>
+                    {mic.label || `麥克風 ${index + 1}`}
+                  </SelectItem>
+                ))}
+              </Select>
+
+              <div className="bg-primary-50 rounded-lg p-3">
+                <p className="text-xs text-primary-800">
+                  💡 {i18n.language === 'zh-TW'
+                    ? '提示：選擇後點擊「確定」，再點擊「語音輸入」開始錄音'
+                    : 'Tip: After selection, click "Confirm", then click "Voice Input" to start recording'}
+                </p>
+              </div>
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              variant="flat"
+              onClick={() => setIsMicSettingsOpen(false)}
+            >
+              {i18n.language === 'zh-TW' ? '取消' : 'Cancel'}
+            </Button>
+            <Button
+              color="primary"
+              onClick={() => setIsMicSettingsOpen(false)}
+            >
+              {i18n.language === 'zh-TW' ? '確定' : 'Confirm'}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Card>
   )
 }
