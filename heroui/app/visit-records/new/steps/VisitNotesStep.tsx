@@ -31,9 +31,18 @@ export default function VisitNotesStep({
   const [interactionPhotos, setInteractionPhotos] = useState<File[]>([])
   const [otherPhotos, setOtherPhotos] = useState<File[]>([])
   const [isRecording, setIsRecording] = useState(false)
+  const [isPaused, setIsPaused] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
+  const [recordingDuration, setRecordingDuration] = useState(0)
   const [currentPhoto, setCurrentPhoto] = useState<File | null>(null)
   const [photoType, setPhotoType] = useState<'interaction' | 'other' | null>(null)
+
+  // 多段錄音管理
+  const [recordingSegments, setRecordingSegments] = useState<{
+    text: string
+    duration: number
+    timestamp: string
+  }[]>([])
 
   // 麥克風設定
   const [availableMicrophones, setAvailableMicrophones] = useState<MediaDeviceInfo[]>([])
@@ -42,11 +51,37 @@ export default function VisitNotesStep({
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
+  const recordingStartTimeRef = useRef<number>(0)
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // 載入可用的麥克風列表
   useEffect(() => {
     loadMicrophones()
   }, [])
+
+  // 錄音計時器
+  useEffect(() => {
+    if (isRecording && !isPaused) {
+      // 開始計時
+      recordingStartTimeRef.current = Date.now() - (recordingDuration * 1000)
+      timerIntervalRef.current = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - recordingStartTimeRef.current) / 1000)
+        setRecordingDuration(elapsed)
+      }, 100)  // 每 100ms 更新一次
+    } else {
+      // 停止計時
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current)
+        timerIntervalRef.current = null
+      }
+    }
+
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current)
+      }
+    }
+  }, [isRecording, isPaused])
 
   const loadMicrophones = async () => {
     try {
@@ -110,7 +145,9 @@ export default function VisitNotesStep({
         // 使用錄音時的 mimeType
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType })
         console.log('🎵 錄音完成，格式:', mimeType, '大小:', Math.round(audioBlob.size / 1024), 'KB')
-        await transcribeAudio(audioBlob)
+
+        // 轉換最後一個段落
+        await transcribeAudioSegment(audioBlob, recordingDuration)
 
         // 停止所有音訊軌道
         stream.getTracks().forEach(track => track.stop())
@@ -118,6 +155,9 @@ export default function VisitNotesStep({
 
       mediaRecorder.start()
       setIsRecording(true)
+      setIsPaused(false)
+      setRecordingDuration(0)
+      recordingStartTimeRef.current = Date.now()
       console.log('🎤 開始錄音...')
     } catch (error) {
       console.error('❌ 錄音失敗:', error)
@@ -125,17 +165,58 @@ export default function VisitNotesStep({
     }
   }
 
-  // 停止錄音
+  // 暫停錄音並轉換
+  const pauseRecording = async () => {
+    if (mediaRecorderRef.current && isRecording && !isPaused) {
+      mediaRecorderRef.current.pause()
+      setIsPaused(true)
+      console.log('⏸️  暫停錄音，準備轉換...')
+
+      // 暫停時送出當前段落轉換
+      const audioBlob = new Blob(audioChunksRef.current, {
+        type: mediaRecorderRef.current.mimeType
+      })
+      console.log('🎵 暫停段落大小:', Math.round(audioBlob.size / 1024), 'KB')
+
+      // 轉換當前段落
+      await transcribeAudioSegment(audioBlob, recordingDuration)
+    }
+  }
+
+  // 繼續錄音
+  const resumeRecording = () => {
+    if (mediaRecorderRef.current && isRecording && isPaused) {
+      mediaRecorderRef.current.resume()
+      setIsPaused(false)
+
+      // 清空 chunks，開始新段落
+      audioChunksRef.current = []
+      recordingStartTimeRef.current = Date.now() - (recordingDuration * 1000)
+
+      console.log('▶️  繼續錄音...')
+    }
+  }
+
+  // 完全停止錄音
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop()
       setIsRecording(false)
-      console.log('🛑 停止錄音')
+      setIsPaused(false)
+      setRecordingDuration(0)
+      console.log('🛑 完全停止錄音')
     }
   }
 
-  // 語音轉文字
-  const transcribeAudio = async (audioBlob: Blob) => {
+  // 格式化時長（秒 → mm:ss）
+  const formatDuration = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  }
+
+  // 語音轉文字（段落）
+  const transcribeAudioSegment = async (audioBlob: Blob, duration: number) => {
     try {
       setIsTranscribing(true)
       console.log('🎙️ 開始語音轉文字...')
@@ -166,13 +247,25 @@ export default function VisitNotesStep({
       const result = await response.json()
       console.log('✅ 轉錄完成:', result.text.substring(0, 100) + '...')
 
-      // 將轉錄文字附加到訪視記錄
+      // 保存到錄音段落列表
+      const segment = {
+        text: result.text,
+        duration: duration,
+        timestamp: new Date().toLocaleTimeString('zh-TW', { hour12: false })
+      }
+
+      setRecordingSegments(prev => [...prev, segment])
+      console.log('📝 錄音段落已保存，總段落數:', recordingSegments.length + 1)
+
+      // 同時附加到訪視記錄
       setVisitNotes(prev => {
         const newText = prev ? `${prev}\n\n${result.text}` : result.text
         return newText
       })
 
-      alert(i18n.language === 'zh-TW' ? '語音轉文字完成！' : 'Transcription completed!')
+      alert(i18n.language === 'zh-TW'
+        ? `語音轉文字完成！段落 ${recordingSegments.length + 1}`
+        : `Transcription completed! Segment ${recordingSegments.length + 1}`)
     } catch (error) {
       console.error('❌ 轉錄失敗:', error)
       alert(i18n.language === 'zh-TW'
@@ -280,7 +373,7 @@ export default function VisitNotesStep({
                   )}
                 </>
               )}
-              {isRecording && (
+              {isRecording && !isPaused && (
                 <>
                   <Button
                     size="sm"
@@ -293,7 +386,19 @@ export default function VisitNotesStep({
                       </svg>
                     }
                   >
-                    {i18n.language === 'zh-TW' ? '錄音中' : 'Recording'}
+                    {formatDuration(recordingDuration)}
+                  </Button>
+                  <Button
+                    size="sm"
+                    color="warning"
+                    onClick={pauseRecording}
+                    startContent={
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M14,19H18V5H14M6,19H10V5H6V19Z" />
+                      </svg>
+                    }
+                  >
+                    {i18n.language === 'zh-TW' ? '暫停' : 'Pause'}
                   </Button>
                   <Button
                     size="sm"
@@ -305,7 +410,38 @@ export default function VisitNotesStep({
                       </svg>
                     }
                   >
-                    {i18n.language === 'zh-TW' ? '停止錄音' : 'Stop'}
+                    {i18n.language === 'zh-TW' ? '停止' : 'Stop'}
+                  </Button>
+                </>
+              )}
+              {isRecording && isPaused && (
+                <>
+                  <Button
+                    size="sm"
+                    color="default"
+                    variant="flat"
+                    disabled
+                  >
+                    ⏸️ {formatDuration(recordingDuration)}
+                  </Button>
+                  <Button
+                    size="sm"
+                    color="success"
+                    onClick={resumeRecording}
+                    startContent={
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M8,5.14V19.14L19,12.14L8,5.14Z" />
+                      </svg>
+                    }
+                  >
+                    {i18n.language === 'zh-TW' ? '繼續錄音' : 'Resume'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    color="danger"
+                    onClick={stopRecording}
+                  >
+                    {i18n.language === 'zh-TW' ? '完全停止' : 'Stop All'}
                   </Button>
                 </>
               )}
@@ -321,6 +457,32 @@ export default function VisitNotesStep({
               )}
             </div>
           </div>
+
+          {/* 已錄製段落列表 */}
+          {recordingSegments.length > 0 && (
+            <div className="bg-success-50 rounded-lg p-4 space-y-2">
+              <h4 className="font-semibold text-sm text-success-800">
+                {i18n.language === 'zh-TW' ? `已錄製 ${recordingSegments.length} 個段落` : `${recordingSegments.length} Segments Recorded`}
+              </h4>
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {recordingSegments.map((segment, index) => (
+                  <div key={index} className="bg-white rounded p-2 text-xs">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="font-semibold text-success-700">
+                        段落 {index + 1}
+                      </span>
+                      <span className="text-default-500">
+                        {formatDuration(segment.duration)} • {segment.timestamp}
+                      </span>
+                    </div>
+                    <p className="text-default-700 line-clamp-2">
+                      {segment.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <Textarea
             label={i18n.language === 'zh-TW' ? '訪視互動情形' : 'Visit Interaction'}
