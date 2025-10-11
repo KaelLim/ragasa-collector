@@ -242,18 +242,13 @@ export default function VisitRecordsListPage() {
                           </div>
                         </div>
 
-                        <div className="mt-4 flex justify-end">
-                          <Button
-                            color="warning"
-                            size="sm"
-                            endContent={
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z" />
-                              </svg>
-                            }
-                          >
-                            {i18n.language === 'zh-TW' ? '開始訪視' : 'Start Visit'}
-                          </Button>
+                        <div className="mt-4 flex justify-end items-center gap-2">
+                          <span className="text-sm text-warning font-medium">
+                            {i18n.language === 'zh-TW' ? '點擊開始訪視' : 'Tap to start'}
+                          </span>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-warning">
+                            <path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z" />
+                          </svg>
                         </div>
                       </CardBody>
                     </Card>
