@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { config as dotenvConfig } from 'dotenv'
 import path from 'path'
 import { OpenAI } from 'openai'
+import { Converter } from 'opencc-js'
 
 // 載入 .env.stt 配置（Whisper STT 專用）
 dotenvConfig({ path: path.join(process.cwd(), '.env.stt') })
+
+// 初始化簡繁轉換器（簡體 → 繁體台灣）
+const converter = Converter({ from: 'cn', to: 'tw' })
 
 /**
  * Whisper 語音轉文字 API
@@ -70,48 +74,50 @@ export async function POST(request: NextRequest) {
       console.warn('⚠️  音訊檔案太小:', audioFile.size, 'bytes，可能導致轉錄失敗')
     }
 
-    // 使用 initial_prompt 強制繁體中文輸出
-    const traditionalChinesePrompt = "請以繁體中文輸出下方語音內容。"
-    console.log('💡 使用 initial_prompt 強制繁體中文:', traditionalChinesePrompt)
+    console.log('🔧 使用 OpenAI SDK + OpenCC 簡繁轉換')
 
     const startTime = Date.now()
 
     // 調用 OpenAI SDK（相容 Xinference）
+    // 移除 initial_prompt，讓 Whisper 正常輸出簡體
     const result = await client.audio.transcriptions.create({
       model: `whisper-${model}-mlx`,
       file: audioFile,
-      language: language,  // ⭐ 繁體中文輸出的關鍵參數
-      prompt: prompt || traditionalChinesePrompt  // ⭐⭐ 強制繁體中文的提示詞
+      language: language  // 語言識別參數
     })
 
     const processingTime = ((Date.now() - startTime) / 1000).toFixed(2)
 
     console.log('✅ OpenAI SDK 調用成功')
-    console.log('✅ 轉錄完成')
-    console.log(`⏱️  處理時間: ${processingTime} 秒`)
-    console.log(`📝 轉錄字數: ${result.text?.length || 0} 字`)
-    console.log(`🎯 請求語言參數: ${language}`)
-    console.log(`📄 轉錄內容預覽:`, result.text?.substring(0, 50) + '...')
+    console.log(`⏱️  Whisper 處理時間: ${processingTime} 秒`)
+    console.log(`📝 原始轉錄字數: ${result.text?.length || 0} 字`)
+    console.log(`📄 原始內容（簡體）:`, result.text?.substring(0, 50) + '...')
 
-    // 檢查是否為繁體中文
-    const hasSimplified = /[\u4e00-\u9fa5]/.test(result.text) && (
-      result.text.includes('这') || result.text.includes('们') || result.text.includes('说') ||
-      result.text.includes('现在') || result.text.includes('还是')
+    // 使用 OpenCC 簡繁轉換（簡體 → 繁體台灣）
+    console.log('🔄 開始簡繁轉換...')
+    const traditionalText = converter(result.text)
+
+    console.log(`📄 轉換後內容（繁體）:`, traditionalText?.substring(0, 50) + '...')
+    console.log('✅ 簡繁轉換完成！')
+
+    // 驗證轉換結果
+    const stillHasSimplified = /[\u4e00-\u9fa5]/.test(traditionalText) && (
+      traditionalText.includes('这') || traditionalText.includes('们') || traditionalText.includes('说')
     )
 
-    if (hasSimplified) {
-      console.warn('⚠️  警告：輸出仍為簡體中文！')
-      console.warn('   可能原因：伺服器端模型配置或 language 參數處理問題')
+    if (stillHasSimplified) {
+      console.warn('⚠️  警告：轉換後仍有簡體字！')
     } else {
-      console.log('✅ 成功輸出繁體中文！')
+      console.log('✅ 已成功轉換為繁體中文')
     }
 
     return NextResponse.json({
-      text: result.text,
-      language: language,
+      text: traditionalText,  // 返回繁體中文文字
+      originalText: result.text,  // 保留原始簡體（供除錯）
+      language: 'zh-TW',  // 標示為繁體中文
       processingTime: parseFloat(processingTime),
       model: `whisper-${model}-mlx`,
-      usedSDK: 'OpenAI Client'
+      usedSDK: 'OpenAI Client + OpenCC'
     })
 
   } catch (error: any) {
