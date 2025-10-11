@@ -184,6 +184,19 @@ temp/UUID7_signature.png (可選)
 - **狀態**: ⚠️ 需要重啟 Claude Code 生效
 - **Commit**: `cfd987a`
 
+#### 5. 申請列表頁面欄位顯示修復 ✅
+- **問題**: 列表卡片顯示空資料（ID、電話、地址欄位空白），但詳情頁正常
+- **根因**: 資料庫從平面結構轉為 JSONB 格式，列表頁未同步更新欄位路徑
+- **修復**:
+  - 卡片視圖：更新所有受影響欄位（行 292, 306, 314, 324）
+  - 表格視圖：同步更新欄位路徑（行 382, 391, 396）
+  - `application.victim_name` → `application_data.victim.name`
+  - `application.id_number` → `application_data.victim.idNumber`
+  - `application.phone_number` → `application_data.victim.phone`
+  - `application.address` → `application_data.victim.address`
+- **結果**: ✅ 列表與詳情頁資料顯示一致
+- **Commit**: `d67e587`
+
 ### 🚨 待修復問題（優先級排序）
 
 #### P0 - 緊急
@@ -252,6 +265,7 @@ temp/UUID7_signature.png (可選)
 ## 📝 重要 Commits 記錄（本次會話）
 
 ```
+d67e587 - fix: 修復申請列表頁面欄位顯示問題
 cfd987a - feat: 新增 Serena MCP 專案配置
 3c0a7d6 - debug: 新增身分證 OCR 驗證調試日誌
 6738d96 - feat: 新增身分證 OCR 資料驗證機制
