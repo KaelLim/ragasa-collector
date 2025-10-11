@@ -513,22 +513,22 @@ export default function VisitNotesStep({
 
           {/* 已錄製段落列表 */}
           {recordingSegments.length > 0 && (
-            <div className="bg-success-50 rounded-lg p-4 space-y-2">
-              <h4 className="font-semibold text-sm text-success-800">
+            <div className="bg-success-100/50 dark:bg-success-900/20 rounded-lg p-4 space-y-2 border border-success-200 dark:border-success-800">
+              <h4 className="font-semibold text-sm text-success-700 dark:text-success-400">
                 {i18n.language === 'zh-TW' ? `已錄製 ${recordingSegments.length} 個段落` : `${recordingSegments.length} Segments Recorded`}
               </h4>
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {recordingSegments.map((segment, index) => (
-                  <div key={index} className="bg-white rounded p-2 text-xs">
+                  <div key={index} className="bg-default-100 dark:bg-default-50 rounded p-3 border border-default-200 dark:border-default-700">
                     <div className="flex justify-between items-center mb-1">
-                      <span className="font-semibold text-success-700">
+                      <span className="font-semibold text-success-700 dark:text-success-500">
                         段落 {index + 1}
                       </span>
-                      <span className="text-default-500">
+                      <span className="text-default-600 dark:text-default-400 text-xs">
                         {formatDuration(segment.duration)} • {segment.timestamp}
                       </span>
                     </div>
-                    <p className="text-default-700 line-clamp-2">
+                    <p className="text-default-800 dark:text-default-200 text-sm line-clamp-2">
                       {segment.text}
                     </p>
                   </div>
