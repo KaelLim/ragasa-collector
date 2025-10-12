@@ -33,20 +33,17 @@ export default function VisitNotesStep({
   const [interactionPhotos, setInteractionPhotos] = useState<File[]>([])
   const [otherPhotos, setOtherPhotos] = useState<File[]>([])
   const [isRecording, setIsRecording] = useState(false)
-  const [isPaused, setIsPaused] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [currentPhoto, setCurrentPhoto] = useState<File | null>(null)
   const [photoType, setPhotoType] = useState<'interaction' | 'other' | null>(null)
   const [errorMessage, setErrorMessage] = useState<string>('')
 
-  // 多段音訊管理（暫停時只保存，完成時才合併轉換）
-  const [audioSegments, setAudioSegments] = useState<Blob[]>([])  // 保存各段音訊
-  const [segmentDurations, setSegmentDurations] = useState<number[]>([])  // 各段時長
+  // 轉換結果（單一錄音）
   const [transcriptionResult, setTranscriptionResult] = useState<{
     text: string
     correctionNotes: string
-  } | null>(null)  // 最終轉換結果
+  } | null>(null)
 
   // 麥克風設定
   const [availableMicrophones, setAvailableMicrophones] = useState<MediaDeviceInfo[]>([])
@@ -65,13 +62,13 @@ export default function VisitNotesStep({
 
   // 錄音計時器
   useEffect(() => {
-    if (isRecording && !isPaused) {
+    if (isRecording) {
       // 開始計時
-      recordingStartTimeRef.current = Date.now() - (recordingDuration * 1000)
+      recordingStartTimeRef.current = Date.now()
       timerIntervalRef.current = setInterval(() => {
         const elapsed = Math.floor((Date.now() - recordingStartTimeRef.current) / 1000)
         setRecordingDuration(elapsed)
-      }, 100)  // 每 100ms 更新一次
+      }, 100)
     } else {
       // 停止計時
       if (timerIntervalRef.current) {
@@ -85,7 +82,7 @@ export default function VisitNotesStep({
         clearInterval(timerIntervalRef.current)
       }
     }
-  }, [isRecording, isPaused])
+  }, [isRecording])
 
   const loadMicrophones = async () => {
     try {
