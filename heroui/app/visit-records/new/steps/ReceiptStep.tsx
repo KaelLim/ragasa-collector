@@ -160,11 +160,18 @@ export default function ReceiptStep({
           </p>
 
           <SignatureCanvas
-            onSignatureChange={(dataUrl) => {
-              setSignature(dataUrl)
-              console.log('✍️ 簽名已更新')
+            onSave={(file) => {
+              // 將 File 轉換為 Data URL
+              const reader = new FileReader()
+              reader.onloadend = () => {
+                const dataUrl = reader.result as string
+                setSignature(dataUrl)
+                console.log('✍️ 簽名已更新')
+              }
+              reader.readAsDataURL(file)
             }}
-            initialSignature={signature}
+            label={i18n.language === 'zh-TW' ? '受領人簽名' : 'Recipient Signature'}
+            currentSignature={signature || null}
           />
 
           {signature && (

@@ -234,7 +234,7 @@ export default function SignatureCanvas({
             <img
               src={signatureImage}
               alt={label}
-              className="w-full h-48 object-contain bg-white rounded-lg border mb-3"
+              className="w-full h-48 object-contain bg-content1 rounded-lg border border-divider mb-3"
             />
             <div className="flex gap-2">
               <Button
@@ -293,7 +293,7 @@ export default function SignatureCanvas({
               ref={canvasRef}
               width={400}
               height={200}
-              className="w-full h-48 border border-default-300 rounded-lg cursor-crosshair touch-none bg-white"
+              className="w-full h-48 border border-divider rounded-lg cursor-crosshair touch-none bg-content1"
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
