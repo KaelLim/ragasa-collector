@@ -40,15 +40,13 @@ export default function VisitNotesStep({
   const [photoType, setPhotoType] = useState<'interaction' | 'other' | null>(null)
   const [errorMessage, setErrorMessage] = useState<string>('')
 
-  // 多段錄音管理
-  const [recordingSegments, setRecordingSegments] = useState<{
+  // 多段音訊管理（暫停時只保存，完成時才合併轉換）
+  const [audioSegments, setAudioSegments] = useState<Blob[]>([])  // 保存各段音訊
+  const [segmentDurations, setSegmentDurations] = useState<number[]>([])  // 各段時長
+  const [transcriptionResult, setTranscriptionResult] = useState<{
     text: string
-    correctionNotes: string  // 校正說明（分離顯示）
-    duration: number
-    timestamp: string
-    audioPath: string  // Storage 檔案路徑
-  }[]>([])
-  const [currentPhase, setCurrentPhase] = useState(1)  // 當前段落編號
+    correctionNotes: string
+  } | null>(null)  // 最終轉換結果
 
   // 麥克風設定
   const [availableMicrophones, setAvailableMicrophones] = useState<MediaDeviceInfo[]>([])
@@ -145,33 +143,7 @@ export default function VisitNotesStep({
       }
 
       mediaRecorder.onstop = async () => {
-        // 使用錄音時的 mimeType
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType })
-        console.log('🎵 錄音完成，格式:', mimeType, '大小:', Math.round(audioBlob.size / 1024), 'KB')
-
-        // 上傳最後一個段落到 Storage
-        try {
-          const { supabase } = await import('@/lib/supabase')
-          const extension = 'webm'  // 固定使用 webm
-          const fileName = `temp/audio/phase${currentPhase}.${extension}`
-
-          console.log(`💾 上傳最後段落: ${fileName}`)
-
-          const { error: uploadError } = await supabase.storage
-            .from('audio')  // 使用音訊專用 bucket
-            .upload(fileName, audioBlob, {
-              cacheControl: '3600',
-              upsert: true
-            })
-
-          if (!uploadError) {
-            console.log(`✅ 最後段落已上傳`)
-            // 轉換最後一個段落
-            await transcribeAudioSegment(audioBlob, recordingDuration, fileName)
-          }
-        } catch (error) {
-          console.error('❌ 最後段落上傳失敗:', error)
-        }
+        console.log('🛑 MediaRecorder 已停止')
 
         // 停止所有音訊軌道
         stream.getTracks().forEach(track => track.stop())
@@ -190,82 +162,42 @@ export default function VisitNotesStep({
     }
   }
 
-  // 暫停錄音並轉換
-  const pauseRecording = async () => {
+  // 暫停錄音（只保存音訊，不轉換）
+  const pauseRecording = () => {
     if (mediaRecorderRef.current && isRecording && !isPaused) {
-      // 先請求最後的資料
+      // 請求最後的資料
       mediaRecorderRef.current.requestData()
 
-      // 等待 ondataavailable 觸發
-      await new Promise(resolve => setTimeout(resolve, 100))
+      // 等待 100ms 後暫停
+      setTimeout(() => {
+        if (mediaRecorderRef.current) {
+          mediaRecorderRef.current.pause()
+          setIsPaused(true)
 
-      mediaRecorderRef.current.pause()
-      setIsPaused(true)
-      console.log(`⏸️  暫停錄音（段落 ${currentPhase}），準備轉換...`)
-      console.log('📊 已收集資料段數:', audioChunksRef.current.length)
-
-      // 檢查是否有錄音資料
-      if (audioChunksRef.current.length === 0) {
-        console.warn('⚠️  無錄音資料，跳過轉換')
-        setErrorMessage('錄音時間太短，請至少錄製 3 秒')
-        return
-      }
-
-      // 建立音訊 Blob
-      const audioBlob = new Blob(audioChunksRef.current, {
-        type: mediaRecorderRef.current.mimeType
-      })
-      console.log('🎵 段落音訊大小:', Math.round(audioBlob.size / 1024), 'KB')
-
-      // 檢查音訊大小（至少 5 KB）
-      if (audioBlob.size < 5000) {
-        console.warn('⚠️  音訊檔案太小:', audioBlob.size, 'bytes')
-        setErrorMessage('錄音時間太短，請至少錄製 3 秒')
-        return
-      }
-
-      // 1. 先上傳音訊到 Storage（temp/audio/phaseX）
-      console.log(`💾 上傳音訊到 Storage: temp/audio/phase${currentPhase}`)
-
-      try {
-        const { supabase } = await import('@/lib/supabase')
-        const extension = 'webm'  // 固定使用 webm
-        const fileName = `temp/audio/phase${currentPhase}.${extension}`
-
-        const { error: uploadError } = await supabase.storage
-          .from('audio')  // 使用音訊專用 bucket
-          .upload(fileName, audioBlob, {
-            cacheControl: '3600',
-            upsert: true
+          // 保存當前段落音訊
+          const audioBlob = new Blob(audioChunksRef.current, {
+            type: mediaRecorderRef.current.mimeType
           })
 
-        if (uploadError) throw uploadError
+          console.log(`⏸️  暫停錄音（段落 ${audioSegments.length + 1}）`)
+          console.log('📊 音訊大小:', Math.round(audioBlob.size / 1024), 'KB')
 
-        console.log(`✅ 音訊已上傳: ${fileName}`)
+          // 保存音訊段落
+          setAudioSegments(prev => [...prev, audioBlob])
+          setSegmentDurations(prev => [...prev, recordingDuration])
 
-        // 2. 轉換當前段落（傳遞檔案路徑）
-        await transcribeAudioSegment(audioBlob, recordingDuration, fileName)
-
-        // 3. 轉換完成後清空 chunks，準備下一段
-        audioChunksRef.current = []
-        console.log('🗑️  段落轉換完成，已清空緩衝區')
-
-        // 4. 遞增段落編號
-        setCurrentPhase(prev => prev + 1)
-
-      } catch (error) {
-        console.error('❌ 音訊上傳失敗:', error)
-        setErrorMessage('音訊檔案上傳失敗')
-      }
+          // 清空緩衝區，準備下一段
+          audioChunksRef.current = []
+          console.log('💾 段落已保存，總段數:', audioSegments.length + 1)
+        }
+      }, 100)
     }
   }
 
-  // 繼續錄音
+  // 繼續錄音（開始新段落）
   const resumeRecording = () => {
     if (mediaRecorderRef.current && isRecording && isPaused) {
-      // 此時 chunks 應該已經在暫停時清空了
-      console.log('▶️  繼續錄音（新段落）...')
-      console.log('📊 緩衝區狀態:', audioChunksRef.current.length, '個資料段')
+      console.log(`▶️  繼續錄音（段落 ${audioSegments.length + 1}）...`)
 
       mediaRecorderRef.current.resume()
       setIsPaused(false)
@@ -273,40 +205,71 @@ export default function VisitNotesStep({
       // 重置計時器（新段落從 0 開始）
       setRecordingDuration(0)
       recordingStartTimeRef.current = Date.now()
-
-      console.log('⏱️  計時器已重置')
     }
   }
 
-  // 完全停止錄音
-  const stopRecording = () => {
+  // 完成錄音（合併所有段落並轉換）
+  const stopRecording = async () => {
     if (mediaRecorderRef.current && isRecording) {
+      // 停止錄音
       mediaRecorderRef.current.stop()
       setIsRecording(false)
       setIsPaused(false)
-      setRecordingDuration(0)
-      console.log('🛑 完全停止錄音')
+
+      // 保存最後一段音訊
+      if (audioChunksRef.current.length > 0) {
+        const finalSegment = new Blob(audioChunksRef.current, {
+          type: mediaRecorderRef.current.mimeType
+        })
+        setAudioSegments(prev => [...prev, finalSegment])
+        setSegmentDurations(prev => [...prev, recordingDuration])
+        console.log('💾 最後段落已保存')
+      }
+
+      console.log('🛑 停止錄音，準備合併並轉換...')
+      console.log('📊 總段落數:', audioSegments.length + (audioChunksRef.current.length > 0 ? 1 : 0))
+
+      // 等待 state 更新後合併
+      setTimeout(() => {
+        mergeAndTranscribe()
+      }, 200)
     }
   }
 
-  // 格式化時長（秒 → mm:ss）
-  const formatDuration = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  // 合併音訊段落並一次性轉換
+  const mergeAndTranscribe = async () => {
+    try {
+      setIsTranscribing(true)
+
+      // 合併所有音訊段落
+      const allSegments = [...audioSegments]
+      if (audioChunksRef.current.length > 0) {
+        const finalBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        allSegments.push(finalBlob)
+      }
+
+      console.log('🔗 合併', allSegments.length, '個音訊段落...')
+
+      // 合併為單一檔案
+      const mergedAudio = new Blob(allSegments, { type: 'audio/webm' })
+      console.log('✅ 合併完成，總大小:', Math.round(mergedAudio.size / 1024), 'KB')
+
+      // 一次性送給 Whisper + Qwen3
+      await transcribeAudio(mergedAudio)
+
+    } catch (error) {
+      console.error('❌ 合併轉換失敗:', error)
+      setErrorMessage('音訊合併失敗')
+    }
   }
 
-  // 語音轉文字（段落）
-  const transcribeAudioSegment = async (audioBlob: Blob, duration: number, audioPath: string) => {
+  // 語音轉文字（單次調用）
+  const transcribeAudio = async (audioBlob: Blob) => {
     try {
       setIsTranscribing(true)
       console.log('🎙️ 開始語音轉文字...')
-      console.log('📁 音訊檔案:', audioPath)
       console.log('📊 音訊大小:', Math.round(audioBlob.size / 1024), 'KB')
-      console.log('📊 音訊格式:', audioBlob.type)
-      console.log('⏱️  段落時長:', formatDuration(duration))
 
-      // 固定使用 webm 副檔名
       const fileName = 'recording.webm'
 
       const formData = new FormData()
@@ -314,18 +277,16 @@ export default function VisitNotesStep({
       formData.append('model', 'large-v3-turbo')
       formData.append('language', 'zh')
 
-      // 傳遞戶口名簿資料供 Qwen3 比對（包含地址）
+      // 傳遞戶口名簿資料供 Qwen3 比對
       if (applicationData?.application_data?.household) {
         const householdInfo = {
-          header: applicationData.application_data.household.header || {},  // 包含戶籍地址
+          header: applicationData.application_data.household.header || {},
           householdHead: applicationData.application_data.household.householdHead,
           members: applicationData.application_data.household.members || []
         }
         formData.append('householdData', JSON.stringify(householdInfo))
         console.log('📋 已加入戶口名簿資料供比對（含戶籍地址）')
       }
-
-      console.log('📤 發送檔案:', fileName, '大小:', Math.round(audioBlob.size / 1024), 'KB')
 
       const response = await fetch('/api/whisper', {
         method: 'POST',
@@ -339,32 +300,23 @@ export default function VisitNotesStep({
 
       const result = await response.json()
       console.log('✅ 轉錄完成:', result.text.substring(0, 100) + '...')
-      if (result.correctionNotes) {
-        console.log('📝 校正說明:', result.correctionNotes.substring(0, 100) + '...')
-      }
 
-      // 保存到錄音段落列表（分離正文和校正說明）
-      const segment = {
-        text: result.text,  // 正文（存入系統）
-        correctionNotes: result.correctionNotes || '',  // 校正說明（額外顯示）
-        duration: duration,
-        timestamp: new Date().toLocaleTimeString('zh-TW', { hour12: false }),
-        audioPath: audioPath
-      }
+      // 保存轉錄結果
+      setTranscriptionResult({
+        text: result.text,
+        correctionNotes: result.correctionNotes || ''
+      })
 
-      setRecordingSegments(prev => [...prev, segment])
-      console.log('📝 錄音段落已保存，總段落數:', recordingSegments.length + 1)
-      console.log('📁 音訊檔案:', audioPath)
-
-      // 同時附加到訪視記錄
+      // 附加到訪視記錄
       setVisitNotes(prev => {
         const newText = prev ? `${prev}\n\n${result.text}` : result.text
         return newText
       })
 
-      // 清除錯誤訊息（成功時）
+      // 清除錯誤訊息
       setErrorMessage('')
-      console.log('✅ 段落', recordingSegments.length + 1, '轉換完成')
+      console.log('✅ 語音轉文字完成')
+
     } catch (error) {
       console.error('❌ 轉錄失敗:', error)
       setErrorMessage(i18n.language === 'zh-TW'
@@ -374,6 +326,15 @@ export default function VisitNotesStep({
       setIsTranscribing(false)
     }
   }
+
+  // 格式化時長（秒 → mm:ss）
+  const formatDuration = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  }
+
+  // 語音轉文字（段落）
 
   // 添加互動照片
   const handleAddInteractionPhoto = (file: File) => {
@@ -579,41 +540,39 @@ export default function VisitNotesStep({
             </div>
           </div>
 
-          {/* 已錄製段落列表 */}
-          {recordingSegments.length > 0 && (
-            <div className="bg-success-50 rounded-lg p-4 space-y-2">
-              <h4 className="font-semibold text-success">
-                {i18n.language === 'zh-TW' ? `已錄製 ${recordingSegments.length} 個段落` : `${recordingSegments.length} Segments Recorded`}
-              </h4>
-              <div className="space-y-2 max-h-40 overflow-y-auto">
-                {recordingSegments.map((segment, index) => (
-                  <div key={index} className="space-y-2">
-                    {/* 正文（存入系統的內容）*/}
-                    <div className="bg-content1 rounded p-3 border border-divider">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="font-semibold text-success">
-                          段落 {index + 1}
-                        </span>
-                        <span className="text-foreground-500 text-xs">
-                          {formatDuration(segment.duration)} • {segment.timestamp}
-                        </span>
-                      </div>
-                      <p className="text-foreground whitespace-pre-wrap">
-                        {segment.text}
-                      </p>
-                    </div>
+          {/* 已保存段落資訊 */}
+          {audioSegments.length > 0 && !transcriptionResult && (
+            <div className="bg-primary-50 rounded-lg p-3">
+              <p className="text-sm text-primary-800">
+                📼 已保存 {audioSegments.length} 個錄音段落，點擊「完全停止」將合併並轉換為文字
+              </p>
+            </div>
+          )}
 
-                    {/* 校正說明（額外框）*/}
-                    {segment.correctionNotes && (
-                      <div className="bg-warning-50 rounded p-2 border border-warning-200">
-                        <p className="text-xs text-warning-800 whitespace-pre-wrap">
-                          {segment.correctionNotes}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                ))}
+          {/* 轉換結果顯示 */}
+          {transcriptionResult && (
+            <div className="space-y-2">
+              {/* 正文（存入系統的內容）*/}
+              <div className="bg-content1 rounded p-4 border border-divider">
+                <h4 className="font-semibold text-success mb-2">
+                  {i18n.language === 'zh-TW' ? '轉錄文字（已優化）' : 'Transcription (Optimized)'}
+                </h4>
+                <p className="text-foreground whitespace-pre-wrap">
+                  {transcriptionResult.text}
+                </p>
               </div>
+
+              {/* 校正說明（額外框）*/}
+              {transcriptionResult.correctionNotes && (
+                <div className="bg-warning-50 rounded p-3 border border-warning-200">
+                  <h5 className="font-semibold text-warning-800 text-xs mb-1">
+                    {i18n.language === 'zh-TW' ? '校正說明' : 'Correction Notes'}
+                  </h5>
+                  <p className="text-xs text-warning-800 whitespace-pre-wrap">
+                    {transcriptionResult.correctionNotes}
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
