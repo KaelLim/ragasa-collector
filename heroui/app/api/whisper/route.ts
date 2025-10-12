@@ -157,11 +157,26 @@ ${householdData ? '4. 比對戶口名簿資料，遇到人名等相似字時以�
           try {
             const household = JSON.parse(householdData)
             userMessage += `\n\n---\n參考資料（戶口名簿）：\n`
-            userMessage += `戶長姓名：${household.householdHead?.name || ''}\n`
+
+            // 戶籍地址
+            if (household.header?.address) {
+              userMessage += `戶籍地址：${household.header.address}\n`
+            }
+
+            // 戶長姓名
+            if (household.householdHead?.name) {
+              userMessage += `戶長姓名：${household.householdHead.name}\n`
+            }
+
+            // 成員姓名
             if (household.members && household.members.length > 0) {
               userMessage += `成員姓名：${household.members.map((m: any) => m.name).join('、')}\n`
             }
-            userMessage += `\n請注意：如轉錄文字中出現相似字（如瑩/螢、燕/艷），請以戶口名簿為準。`
+
+            userMessage += `\n請注意：如轉錄文字中出現下列資訊，請以戶口名簿為準：\n`
+            userMessage += `- 地址：請核對是否與戶籍地址一致\n`
+            userMessage += `- 姓名：注意相似字（如瑩/螢、燕/艷、鴻/洪等）\n`
+            userMessage += `- 地名：村名、路名等地理資訊`
           } catch (e) {
             console.warn('⚠️  戶口名簿資料解析失敗')
           }
