@@ -149,125 +149,40 @@ export default function VisitNotesStep({
       // 開始錄音（每秒產生一次資料）
       mediaRecorder.start(1000)  // timeslice: 1000ms
       setIsRecording(true)
-      setIsPaused(false)
       setRecordingDuration(0)
       recordingStartTimeRef.current = Date.now()
-      console.log('🎤 開始錄音（每秒收集資料）...')
+      console.log('🎤 開始錄音...')
     } catch (error) {
       console.error('❌ 錄音失敗:', error)
       setErrorMessage(i18n.language === 'zh-TW' ? '無法存取麥克風，請檢查權限設定' : 'Cannot access microphone, please check permissions')
     }
   }
 
-  // 暫停錄音（只保存音訊，不轉換）
-  const pauseRecording = () => {
-    if (mediaRecorderRef.current && isRecording && !isPaused) {
-      // 請求最後的資料
-      mediaRecorderRef.current.requestData()
-
-      // 等待 100ms 後暫停
-      setTimeout(() => {
-        if (mediaRecorderRef.current) {
-          mediaRecorderRef.current.pause()
-          setIsPaused(true)
-
-          // 保存當前段落音訊
-          const audioBlob = new Blob(audioChunksRef.current, {
-            type: mediaRecorderRef.current.mimeType
-          })
-
-          console.log(`⏸️  暫停錄音（段落 ${audioSegments.length + 1}）`)
-          console.log('📊 音訊大小:', Math.round(audioBlob.size / 1024), 'KB')
-
-          // 保存音訊段落
-          setAudioSegments(prev => [...prev, audioBlob])
-          setSegmentDurations(prev => [...prev, recordingDuration])
-
-          // 清空緩衝區，準備下一段
-          audioChunksRef.current = []
-          console.log('💾 段落已保存，總段數:', audioSegments.length + 1)
-        }
-      }, 100)
-    }
-  }
-
-  // 繼續錄音（開始新段落）
-  const resumeRecording = () => {
-    if (mediaRecorderRef.current && isRecording && isPaused) {
-      console.log(`▶️  繼續錄音（段落 ${audioSegments.length + 1}）...`)
-
-      mediaRecorderRef.current.resume()
-      setIsPaused(false)
-
-      // 重置計時器（新段落從 0 開始）
-      setRecordingDuration(0)
-      recordingStartTimeRef.current = Date.now()
-    }
-  }
-
-  // 完成錄音（合併所有段落並轉換）
+  // 停止錄音並轉換
   const stopRecording = async () => {
     if (mediaRecorderRef.current && isRecording) {
       // 停止錄音
       mediaRecorderRef.current.stop()
       setIsRecording(false)
-      setIsPaused(false)
 
-      // 保存最後一段音訊
-      if (audioChunksRef.current.length > 0) {
-        const finalSegment = new Blob(audioChunksRef.current, {
-          type: mediaRecorderRef.current.mimeType
+      console.log('🛑 停止錄音，準備轉換...')
+      console.log('📊 音訊大小:', Math.round(audioChunksRef.current.reduce((sum, chunk) => sum + chunk.size, 0) / 1024), 'KB')
+
+      // 等待 MediaRecorder 完全停止並收集所有資料
+      setTimeout(async () => {
+        // 建立音訊 Blob
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: 'audio/webm'
         })
-        setAudioSegments(prev => [...prev, finalSegment])
-        setSegmentDurations(prev => [...prev, recordingDuration])
-        console.log('💾 最後段落已保存')
-      }
 
-      console.log('🛑 停止錄音，準備合併並轉換...')
-      console.log('📊 總段落數:', audioSegments.length + (audioChunksRef.current.length > 0 ? 1 : 0))
+        console.log('🎵 音訊準備完成，開始轉換...')
 
-      // 等待 state 更新後合併
-      setTimeout(() => {
-        mergeAndTranscribe()
+        // 直接轉換
+        await transcribeAudio(audioBlob)
+
+        // 清空緩衝區
+        audioChunksRef.current = []
       }, 200)
-    }
-  }
-
-  // 合併音訊段落並一次性轉換
-  const mergeAndTranscribe = async () => {
-    try {
-      setIsTranscribing(true)
-
-      // 合併所有音訊段落
-      const allSegments = [...audioSegments]
-      if (audioChunksRef.current.length > 0) {
-        const finalBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-        allSegments.push(finalBlob)
-      }
-
-      console.log('🔗 合併', allSegments.length, '個音訊段落...')
-
-      // 合併為單一檔案
-      const mergedAudio = new Blob(allSegments, { type: 'audio/webm' })
-      console.log('✅ 合併完成，總大小:', Math.round(mergedAudio.size / 1024), 'KB')
-
-      // 下載合併後的音訊供驗證
-      const downloadUrl = URL.createObjectURL(mergedAudio)
-      const a = document.createElement('a')
-      a.href = downloadUrl
-      a.download = `merged-audio-${Date.now()}.webm`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(downloadUrl)
-      console.log('💾 合併音訊已下載到下載資料夾供驗證')
-
-      // 一次性送給 Whisper + Qwen3
-      await transcribeAudio(mergedAudio)
-
-    } catch (error) {
-      console.error('❌ 合併轉換失敗:', error)
-      setErrorMessage('音訊合併失敗')
     }
   }
 
@@ -463,7 +378,7 @@ export default function VisitNotesStep({
                   )}
                 </>
               )}
-              {isRecording && !isPaused && (
+              {isRecording && (
                 <>
                   <Button
                     size="sm"
@@ -480,18 +395,6 @@ export default function VisitNotesStep({
                   </Button>
                   <Button
                     size="sm"
-                    color="warning"
-                    onClick={pauseRecording}
-                    startContent={
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M14,19H18V5H14M6,19H10V5H6V19Z" />
-                      </svg>
-                    }
-                  >
-                    {i18n.language === 'zh-TW' ? '暫停' : 'Pause'}
-                  </Button>
-                  <Button
-                    size="sm"
                     color="danger"
                     onClick={stopRecording}
                     startContent={
@@ -500,38 +403,7 @@ export default function VisitNotesStep({
                       </svg>
                     }
                   >
-                    {i18n.language === 'zh-TW' ? '停止' : 'Stop'}
-                  </Button>
-                </>
-              )}
-              {isRecording && isPaused && (
-                <>
-                  <Button
-                    size="sm"
-                    color="default"
-                    variant="flat"
-                    disabled
-                  >
-                    ⏸️ {formatDuration(recordingDuration)}
-                  </Button>
-                  <Button
-                    size="sm"
-                    color="success"
-                    onClick={resumeRecording}
-                    startContent={
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M8,5.14V19.14L19,12.14L8,5.14Z" />
-                      </svg>
-                    }
-                  >
-                    {i18n.language === 'zh-TW' ? '繼續錄音' : 'Resume'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    color="danger"
-                    onClick={stopRecording}
-                  >
-                    {i18n.language === 'zh-TW' ? '完全停止' : 'Stop All'}
+                    {i18n.language === 'zh-TW' ? '停止並轉換' : 'Stop & Convert'}
                   </Button>
                 </>
               )}
@@ -547,15 +419,6 @@ export default function VisitNotesStep({
               )}
             </div>
           </div>
-
-          {/* 已保存段落資訊 */}
-          {audioSegments.length > 0 && !transcriptionResult && (
-            <div className="bg-primary-50 rounded-lg p-3">
-              <p className="text-sm text-primary-800">
-                📼 已保存 {audioSegments.length} 個錄音段落，點擊「完全停止」將合併並轉換為文字
-              </p>
-            </div>
-          )}
 
           {/* 轉換結果顯示 */}
           {transcriptionResult && (
