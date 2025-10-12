@@ -132,10 +132,16 @@
 - Dark mode 配色
 - 等等...
 
+#### 已知問題
+- ⚠️  多段錄音第二次轉換偶發 500 錯誤
+- 解決方案：簡化為單段錄音 + 音檔上傳（待實作）
+
 #### 相關 Commits（本次會話）
-`68c62a7` - feat: 新增訪視紀錄模組 V1.1.0（Dashboard 卡片）
-...共 30+ commits...
-`08183b4` - fix: 重構 Whisper API 代碼結構
+`68c62a7` - feat: 新增訪視紀錄模組（開始）
+...共 45+ commits...
+`fb43390` - fix: 每次請求建立新 OpenAI Client
+`3b0aaea` - feat: 分離正文與校正說明
+`eb9d89b` - fix: HeroUI 語義化配色（最新）
 
 ---
 
