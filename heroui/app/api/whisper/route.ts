@@ -95,6 +95,7 @@ export async function POST(request: NextRequest) {
 
     // 如果啟用文字處理，使用 Qwen3-Instruct 優化
     let finalText = result.text
+    let correctionNotes = ''  // 在外層定義
 
     if (TEXT_PROCESSING_ENABLED && result.text) {
       console.log('🤖 使用 Qwen3-Instruct 進行文字優化...')
@@ -215,7 +216,6 @@ ${householdData ? '4. 比對戶口名簿資料，遇到人名等相似字時以�
         // 分離正文和校正說明
         // Qwen3 可能會用「---」或「校正說明：」等標記分隔
         let mainText = qwenOutput
-        let correctionNotes = ''
 
         // 嘗試分離校正說明
         const separators = ['---\n校正說明', '---\n修正說明', '---\n編輯說明', '\n\n校正說明：', '\n\n修正說明：']
