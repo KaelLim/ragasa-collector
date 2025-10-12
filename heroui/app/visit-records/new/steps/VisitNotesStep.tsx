@@ -254,6 +254,17 @@ export default function VisitNotesStep({
       const mergedAudio = new Blob(allSegments, { type: 'audio/webm' })
       console.log('✅ 合併完成，總大小:', Math.round(mergedAudio.size / 1024), 'KB')
 
+      // 下載合併後的音訊供驗證
+      const downloadUrl = URL.createObjectURL(mergedAudio)
+      const a = document.createElement('a')
+      a.href = downloadUrl
+      a.download = `merged-audio-${Date.now()}.webm`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(downloadUrl)
+      console.log('💾 合併音訊已下載到下載資料夾供驗證')
+
       // 一次性送給 Whisper + Qwen3
       await transcribeAudio(mergedAudio)
 
