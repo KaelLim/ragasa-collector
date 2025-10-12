@@ -582,7 +582,7 @@ export default function VisitNotesStep({
               </h4>
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {recordingSegments.map((segment, index) => (
-                  <div key={index} className="bg-default-100 dark:bg-default-800/60 rounded p-3 border-2 border-success-300 dark:border-success-700">
+                  <div key={index} className="bg-default-100 rounded p-3 border-2 border-success-300 dark:border-success-700">
                     <div className="flex justify-between items-center mb-2">
                       <span className="font-bold text-success-700 dark:text-success-400">
                         段落 {index + 1}
