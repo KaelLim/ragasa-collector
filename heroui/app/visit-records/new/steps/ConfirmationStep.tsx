@@ -243,18 +243,66 @@ export default function ConfirmationStep({
         </div>
 
         {/* 訪視記錄預覽 */}
-        {formData.visit?.notes && (
-          <div className="space-y-3">
-            <h3 className="font-semibold text-lg border-b border-default-200 pb-2">
-              {i18n.language === 'zh-TW' ? '訪視記錄' : 'Visit Notes'}
-            </h3>
+        <div className="space-y-3">
+          <h3 className="font-semibold text-lg border-b border-default-200 pb-2">
+            {i18n.language === 'zh-TW' ? '訪視記錄' : 'Visit Notes'}
+          </h3>
+
+          {/* 訪視記錄文字 */}
+          {formData.visit?.notes && (
             <div className="bg-default-50 rounded-lg p-4">
               <p className="text-sm text-default-700 whitespace-pre-wrap">
                 {formData.visit.notes}
               </p>
             </div>
-          </div>
-        )}
+          )}
+
+          {/* 訪視互動照片 */}
+          {(formData as any)._tempFiles?.interactionPhotos?.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="font-medium text-default-700">
+                {i18n.language === 'zh-TW' ? '訪視互動照片' : 'Interaction Photos'}
+                <span className="text-sm text-default-500 ml-2">
+                  ({(formData as any)._tempFiles.interactionPhotos.length} 張)
+                </span>
+              </h4>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {(formData as any)._tempFiles.interactionPhotos.map((file: File, idx: number) => (
+                  <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border-2 border-default-200">
+                    <img
+                      src={URL.createObjectURL(file)}
+                      alt={`互動照片 ${idx + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 其他佐證照片 */}
+          {(formData as any)._tempFiles?.otherPhotos?.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="font-medium text-default-700">
+                {i18n.language === 'zh-TW' ? '其他佐證照片' : 'Other Evidence Photos'}
+                <span className="text-sm text-default-500 ml-2">
+                  ({(formData as any)._tempFiles.otherPhotos.length} 張)
+                </span>
+              </h4>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {(formData as any)._tempFiles.otherPhotos.map((file: File, idx: number) => (
+                  <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border-2 border-default-200">
+                    <img
+                      src={URL.createObjectURL(file)}
+                      alt={`其他照片 ${idx + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* 電子簽收單預覽 */}
         <div className="space-y-3">

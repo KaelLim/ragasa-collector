@@ -110,21 +110,22 @@ export default function LoginPage() {
                 {t('auth.loginButton')}
               </Button>
 
-              {/* 開發環境提示 */}
-              {process.env.NODE_ENV === 'development' && (
+              {/* 開發環境提示 - 已隱藏 */}
+              {/* {process.env.NODE_ENV === 'development' && (
                 <div className="bg-warning-50 border border-warning-200 rounded-lg p-3 mt-4">
                   <p className="text-sm text-warning-700">
                     <strong>開發環境提示：</strong><br />
                     所有使用者共用密碼：<code className="bg-warning-100 px-1 rounded">94800552</code>
                   </p>
                 </div>
-              )}
+              )} */}
 
-              <div className="text-center">
+              {/* 註冊連結 - 已隱藏 */}
+              {/* <div className="text-center">
                 <Link href="/register" className="text-primary text-sm">
                   {t('auth.noAccount')}
                 </Link>
-              </div>
+              </div> */}
             </form>
           </CardBody>
         </Card>
