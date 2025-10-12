@@ -577,21 +577,21 @@ export default function VisitNotesStep({
           {/* 已錄製段落列表 */}
           {recordingSegments.length > 0 && (
             <div className="bg-success-100/50 dark:bg-success-900/20 rounded-lg p-4 space-y-2 border border-success-200 dark:border-success-800">
-              <h4 className="font-semibold text-sm text-success-700 dark:text-success-400">
+              <h4 className="font-bold text-success-800 dark:text-success-300">
                 {i18n.language === 'zh-TW' ? `已錄製 ${recordingSegments.length} 個段落` : `${recordingSegments.length} Segments Recorded`}
               </h4>
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {recordingSegments.map((segment, index) => (
-                  <div key={index} className="bg-default-100 dark:bg-default-50 rounded p-3 border border-default-200 dark:border-default-700">
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="font-semibold text-success-700 dark:text-success-500">
+                  <div key={index} className="bg-default-100 dark:bg-default-800/60 rounded p-3 border-2 border-success-300 dark:border-success-700">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="font-bold text-success-700 dark:text-success-400">
                         段落 {index + 1}
                       </span>
-                      <span className="text-default-600 dark:text-default-400 text-xs">
+                      <span className="text-default-700 dark:text-default-300 text-xs font-medium">
                         {formatDuration(segment.duration)} • {segment.timestamp}
                       </span>
                     </div>
-                    <p className="text-default-800 dark:text-default-200 text-sm line-clamp-2">
+                    <p className="text-default-900 dark:text-default-100 font-medium leading-relaxed line-clamp-2">
                       {segment.text}
                     </p>
                   </div>
