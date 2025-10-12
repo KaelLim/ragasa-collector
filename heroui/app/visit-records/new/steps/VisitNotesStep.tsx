@@ -43,6 +43,7 @@ export default function VisitNotesStep({
   // 多段錄音管理
   const [recordingSegments, setRecordingSegments] = useState<{
     text: string
+    correctionNotes: string  // 校正說明（分離顯示）
     duration: number
     timestamp: string
     audioPath: string  // Storage 檔案路徑
@@ -338,10 +339,14 @@ export default function VisitNotesStep({
 
       const result = await response.json()
       console.log('✅ 轉錄完成:', result.text.substring(0, 100) + '...')
+      if (result.correctionNotes) {
+        console.log('📝 校正說明:', result.correctionNotes.substring(0, 100) + '...')
+      }
 
-      // 保存到錄音段落列表（包含音訊檔案路徑）
+      // 保存到錄音段落列表（分離正文和校正說明）
       const segment = {
-        text: result.text,
+        text: result.text,  // 正文（存入系統）
+        correctionNotes: result.correctionNotes || '',  // 校正說明（額外顯示）
         duration: duration,
         timestamp: new Date().toLocaleTimeString('zh-TW', { hour12: false }),
         audioPath: audioPath
@@ -582,18 +587,30 @@ export default function VisitNotesStep({
               </h4>
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {recordingSegments.map((segment, index) => (
-                  <div key={index} className="bg-content1 rounded p-3 border border-divider">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="font-semibold text-success">
-                        段落 {index + 1}
-                      </span>
-                      <span className="text-foreground-500 text-xs">
-                        {formatDuration(segment.duration)} • {segment.timestamp}
-                      </span>
+                  <div key={index} className="space-y-2">
+                    {/* 正文（存入系統的內容）*/}
+                    <div className="bg-content1 rounded p-3 border border-divider">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="font-semibold text-success">
+                          段落 {index + 1}
+                        </span>
+                        <span className="text-foreground-500 text-xs">
+                          {formatDuration(segment.duration)} • {segment.timestamp}
+                        </span>
+                      </div>
+                      <p className="text-foreground whitespace-pre-wrap">
+                        {segment.text}
+                      </p>
                     </div>
-                    <p className="text-foreground line-clamp-2">
-                      {segment.text}
-                    </p>
+
+                    {/* 校正說明（額外框）*/}
+                    {segment.correctionNotes && (
+                      <div className="bg-warning-50 rounded p-2 border border-warning-200">
+                        <p className="text-xs text-warning-800 whitespace-pre-wrap">
+                          {segment.correctionNotes}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

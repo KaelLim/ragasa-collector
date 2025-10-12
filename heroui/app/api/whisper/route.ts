@@ -139,6 +139,17 @@ ${householdData ? '4. 比對戶口名簿資料，遇到人名等相似字時以�
 2. 原稿經和事件摘要比對後發現錯字，依事件摘要文準，要替換正確的字
 3. 原稿除增加錯字修正及字詞替換建議，應盡力保持原文逐字呈現，不要摘要，也不要整理
 
+**重要：輸出格式**
+請用以下格式輸出：
+
+[正文內容在此]
+
+---
+校正說明：
+- [列出所有修正項目]
+- [例如：「王小螢」修正為「王小瑩」（比對戶口名簿）]
+- [例如：數字「123」轉換為「一二三」]
+
 # 品質檢查重點
 1. 確保所有數字都已正確轉換
 2. 詞彙替換後的文意通順
@@ -199,11 +210,33 @@ ${householdData ? '4. 比對戶口名簿資料，遇到人名等相似字時以�
           max_tokens: 4000
         })
 
-        finalText = optimizationResult.choices[0]?.message?.content || result.text
+        const qwenOutput = optimizationResult.choices[0]?.message?.content || result.text
+
+        // 分離正文和校正說明
+        // Qwen3 可能會用「---」或「校正說明：」等標記分隔
+        let mainText = qwenOutput
+        let correctionNotes = ''
+
+        // 嘗試分離校正說明
+        const separators = ['---\n校正說明', '---\n修正說明', '---\n編輯說明', '\n\n校正說明：', '\n\n修正說明：']
+        for (const separator of separators) {
+          if (qwenOutput.includes(separator)) {
+            const parts = qwenOutput.split(separator)
+            mainText = parts[0].trim()
+            correctionNotes = (separator + parts.slice(1).join(separator)).trim()
+            console.log('✂️  已分離正文和校正說明')
+            break
+          }
+        }
+
+        finalText = mainText  // 僅正文存入系統
 
         const optimizationTime = ((Date.now() - optimizationStartTime) / 1000).toFixed(2)
         console.log(`✅ Qwen3 文字優化完成（${optimizationTime} 秒）`)
-        console.log(`📄 優化後內容:`, finalText.substring(0, 50) + '...')
+        console.log(`📄 正文內容:`, finalText.substring(0, 50) + '...')
+        if (correctionNotes) {
+          console.log(`📝 校正說明:`, correctionNotes.substring(0, 50) + '...')
+        }
 
       } catch (optimizationError) {
         console.error('❌ 文字優化失敗，返回原始轉錄:', optimizationError)
@@ -214,7 +247,8 @@ ${householdData ? '4. 比對戶口名簿資料，遇到人名等相似字時以�
     const totalProcessingTime = ((Date.now() - startTime) / 1000).toFixed(2)
 
     return NextResponse.json({
-      text: finalText,  // 返回優化後的繁體中文
+      text: finalText,  // 返回優化後的繁體中文（正文）
+      correctionNotes: correctionNotes || '',  // 校正說明（分離顯示）
       originalText: result.text,  // 保留原始簡體
       language: 'zh-TW',
       processingTime: parseFloat(totalProcessingTime),
