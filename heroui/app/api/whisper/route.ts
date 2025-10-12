@@ -27,18 +27,19 @@ const XINFERENCE_API_KEY = process.env.XINFERENCE_API_KEY || ''
 const TEXT_PROCESSING_MODEL = process.env.TEXT_PROCESSING_MODEL || 'Qwen3-Instruct'
 const TEXT_PROCESSING_ENABLED = process.env.TEXT_PROCESSING_ENABLED !== 'false'
 
-// 建立 OpenAI Client（指向 Xinference 伺服器）
-const client = new OpenAI({
-  apiKey: XINFERENCE_API_KEY,
-  baseURL: XINFERENCE_API_URL
-})
-
 console.log('[Whisper API] 初始化:')
 console.log('  Xinference URL:', XINFERENCE_API_URL)
 console.log('  API Key:', XINFERENCE_API_KEY ? '已設定' : '❌ 未設定')
 console.log('  文字處理 LLM:', TEXT_PROCESSING_MODEL, TEXT_PROCESSING_ENABLED ? '✅ 啟用' : '❌ 停用')
 
 export async function POST(request: NextRequest) {
+  // 每次請求建立新的 OpenAI Client（避免 session 衝突）
+  const client = new OpenAI({
+    apiKey: XINFERENCE_API_KEY,
+    baseURL: XINFERENCE_API_URL
+  })
+
+  console.log('🔄 已建立新的 OpenAI Client 實例')
   try {
     const formData = await request.formData()
     const audioFile = formData.get('file') as File
