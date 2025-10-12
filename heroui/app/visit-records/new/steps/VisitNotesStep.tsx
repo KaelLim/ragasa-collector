@@ -38,6 +38,8 @@ export default function VisitNotesStep({
   const [currentPhoto, setCurrentPhoto] = useState<File | null>(null)
   const [photoType, setPhotoType] = useState<'interaction' | 'other' | null>(null)
   const [errorMessage, setErrorMessage] = useState<string>('')
+  const [uploadedAudioFile, setUploadedAudioFile] = useState<File | null>(null)
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false)
 
   // 轉換結果（單一錄音）
   const [transcriptionResult, setTranscriptionResult] = useState<{
@@ -54,6 +56,7 @@ export default function VisitNotesStep({
   const audioChunksRef = useRef<Blob[]>([])
   const recordingStartTimeRef = useRef<number>(0)
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const audioFileInputRef = useRef<HTMLInputElement | null>(null)
 
   // 載入可用的麥克風列表
   useEffect(() => {
@@ -257,6 +260,42 @@ export default function VisitNotesStep({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
+  // 處理音檔上傳
+  const handleAudioFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // 驗證檔案類型
+    const allowedTypes = ['audio/mp3', 'audio/mpeg', 'audio/wav', 'audio/webm']
+    if (!allowedTypes.includes(file.type) && !file.name.match(/\.(mp3|wav|webm)$/i)) {
+      setErrorMessage(i18n.language === 'zh-TW'
+        ? '不支援的檔案格式，請上傳 MP3、WAV 或 WebM 格式'
+        : 'Unsupported file format, please upload MP3, WAV or WebM')
+      return
+    }
+
+    // 驗證檔案大小（10MB）
+    const maxSize = 10 * 1024 * 1024
+    if (file.size > maxSize) {
+      setErrorMessage(i18n.language === 'zh-TW'
+        ? `檔案大小超過限制（${Math.round(file.size / 1024 / 1024)}MB > 10MB）`
+        : `File size exceeds limit (${Math.round(file.size / 1024 / 1024)}MB > 10MB)`)
+      return
+    }
+
+    console.log('📁 已選擇音檔:', file.name, Math.round(file.size / 1024), 'KB')
+    setUploadedAudioFile(file)
+    setIsUploadingAudio(true)
+
+    // 直接轉換
+    await transcribeAudio(file)
+
+    setIsUploadingAudio(false)
+
+    // 清除檔案選擇器
+    e.target.value = ''
+  }
+
   // 語音轉文字（段落）
 
   // 添加互動照片
@@ -348,7 +387,7 @@ export default function VisitNotesStep({
               {i18n.language === 'zh-TW' ? '訪視互動情形記錄' : 'Visit Interaction Notes'}
             </h3>
             <div className="flex gap-2">
-              {!isRecording && !isTranscribing && (
+              {!isRecording && !isTranscribing && !isUploadingAudio && (
                 <>
                   <Button
                     size="sm"
@@ -363,6 +402,26 @@ export default function VisitNotesStep({
                   >
                     {i18n.language === 'zh-TW' ? '語音輸入' : 'Voice Input'}
                   </Button>
+                  <Button
+                    size="sm"
+                    color="secondary"
+                    variant="flat"
+                    onClick={() => audioFileInputRef.current?.click()}
+                    startContent={
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20M12,19L8,15H10.5V12H13.5V15H16L12,19Z" />
+                      </svg>
+                    }
+                  >
+                    {i18n.language === 'zh-TW' ? '上傳音檔' : 'Upload Audio'}
+                  </Button>
+                  <input
+                    ref={audioFileInputRef}
+                    type="file"
+                    accept=".mp3,.wav,.webm,audio/mp3,audio/mpeg,audio/wav,audio/webm"
+                    onChange={handleAudioFileSelect}
+                    className="hidden"
+                  />
                   {availableMicrophones.length > 1 && (
                     <Button
                       size="sm"
@@ -417,6 +476,16 @@ export default function VisitNotesStep({
                   {i18n.language === 'zh-TW' ? '轉錄中...' : 'Transcribing...'}
                 </Button>
               )}
+              {isUploadingAudio && (
+                <Button
+                  size="sm"
+                  color="secondary"
+                  isLoading={true}
+                  disabled
+                >
+                  {i18n.language === 'zh-TW' ? '上傳處理中...' : 'Processing...'}
+                </Button>
+              )}
             </div>
           </div>
 
@@ -461,8 +530,8 @@ export default function VisitNotesStep({
           />
           <p className="text-xs text-default-500">
             {i18n.language === 'zh-TW'
-              ? '💡 提示：可使用「語音輸入」按鈕錄音，系統會自動轉為繁體中文文字'
-              : '💡 Tip: Use "Voice Input" button to record, system will auto-convert to text'}
+              ? '💡 提示：可使用「語音輸入」即時錄音，或「上傳音檔」選擇已錄好的音檔（支援 MP3/WAV/WebM，最大 10MB），系統會自動轉為繁體中文文字'
+              : '💡 Tip: Use "Voice Input" to record live, or "Upload Audio" to select pre-recorded file (MP3/WAV/WebM, max 10MB), system will auto-convert to text'}
           </p>
         </div>
 
