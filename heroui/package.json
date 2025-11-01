@@ -38,6 +38,7 @@
     "@heroui/scroll-shadow": "2.3.17",
     "@heroui/select": "^2.4.27",
     "@heroui/skeleton": "2.2.16",
+    "@heroui/slider": "^2.4.23",
     "@heroui/snippet": "2.2.27",
     "@heroui/spacer": "2.2.20",
     "@heroui/spinner": "2.2.23",
@@ -53,7 +54,10 @@
     "@react-aria/visually-hidden": "3.8.27",
     "@supabase/supabase-js": "^2.58.0",
     "@tailwindcss/typography": "^0.5.19",
+    "@types/exif-js": "^2.3.1",
     "clsx": "2.1.1",
+    "dotenv": "^17.2.2",
+    "exif-js": "^2.3.0",
     "framer-motion": "11.18.2",
     "i18next": "^25.5.2",
     "intl-messageformat": "10.7.16",
@@ -62,7 +66,8 @@
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-i18next": "^16.0.0",
-    "react-markdown": "^10.1.0"
+    "react-markdown": "^10.1.0",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@next/eslint-plugin-next": "15.3.4",
@@ -71,6 +76,7 @@
     "@types/node": "20.5.7",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
+    "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "8.34.1",
     "@typescript-eslint/parser": "8.34.1",
     "eslint": "9.25.1",

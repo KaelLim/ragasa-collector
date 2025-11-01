@@ -5,6 +5,8 @@ import { Card, CardBody, CardHeader } from '@heroui/card'
 import { Button } from '@heroui/button'
 import { Progress } from '@heroui/progress'
 import { Modal, ModalContent, ModalHeader, ModalBody } from '@heroui/modal'
+import { Spinner } from '@heroui/spinner'
+import { Input } from '@heroui/input'
 import { useTranslation } from 'react-i18next'
 import { useRouter } from 'next/navigation'
 import Logo from '@/components/logo'
@@ -15,18 +17,19 @@ import CameraCapture from '@/components/CameraCapture'
 import SignatureCanvas from '@/components/SignatureCanvas'
 import BankSelector from '@/components/BankSelector'
 import { supabase, type BankCode } from '@/lib/supabase'
+import { useCountdown } from '@/hooks/useCountdown'
 
-type FormStep = 'comfort-letter' | 'consent-form' | 'application-form' | 'completed'
+type FormStep = 'consent-form' | 'application-form' | 'document-upload' | 'completed'
 
 const steps = [
-  { key: 'comfort-letter', title: '上人慰問信', titleEn: 'Comfort Letter' },
-  { key: 'consent-form', title: '個資授權同意書', titleEn: 'Consent Form' },
-  { key: 'application-form', title: '應急慰問金匯款資訊', titleEn: 'Relief Fund Application' },
+  { key: 'consent-form', title: '個資收集同意聲明', titleEn: 'Privacy Consent Declaration' },
+  { key: 'application-form', title: '基本資料與證件拍照', titleEn: 'Basic Info & Document Photos' },
+  { key: 'document-upload', title: '其他文件上傳', titleEn: 'Additional Documents Upload' },
 ]
 
 export default function NewApplicationPage() {
   const { t, i18n } = useTranslation()
-  const [currentStep, setCurrentStep] = useState<FormStep>('comfort-letter')
+  const [currentStep, setCurrentStep] = useState<FormStep>('consent-form')
   const [isAgreed, setIsAgreed] = useState(false)
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [currentSubStep, setCurrentSubStep] = useState(1) // 第三步的子步驟
@@ -40,15 +43,22 @@ export default function NewApplicationPage() {
     address: '',
     bank_code: '',
     bank_name: '',
-    bank_account: ''
+    bank_branch: '',
+    bank_account: '',
+    account_name: '',
+    contactOption: '' as '' | 'provide' | 'skip'
   })
+
+  // 數字鍵盤狀態
+  const [showNumberPad, setShowNumberPad] = useState(false)
+  const [tempPhoneNumber, setTempPhoneNumber] = useState('')
 
   // 檔案資料
   const [fileData, setFileData] = useState({
     frontIdPhoto: null as File | null,
     backIdPhoto: null as File | null,
     bankPhoto: null as File | null,
-    signature: null as File | null
+    // signature: null as File | null - 簽名已移除
   })
 
   // 銀行代碼資料
@@ -58,7 +68,36 @@ export default function NewApplicationPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
 
+  // OCR 處理狀態
+  const [isProcessingOCR, setIsProcessingOCR] = useState(false)
+  const [ocrMessage, setOCRMessage] = useState('AI 辨識中，請稍候...')
+
+  // 附加檔案上傳狀態 - 必須在頂層定義
+  const [uploadedDocuments, setUploadedDocuments] = useState<Array<{
+    id: string
+    type: string
+    customType?: string  // 當 type 為 'other' 時的自訂類型
+    file: File | null
+    preview: string | null
+  }>>([])
+
   const router = useRouter()
+
+  // 倒數計時器 Hook - 必須在頂層調用，不能在條件內
+  const { timeLeft, isComplete, percentage } = useCountdown(5, {
+    autoStart: currentStep === 'consent-form'
+  })
+
+  // 檢查用戶登入狀態
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { user }, error } = await supabase.auth.getUser()
+      if (error || !user) {
+        router.push('/login')
+      }
+    }
+    checkAuth()
+  }, [router])
 
   // 載入銀行代碼
   useEffect(() => {
@@ -97,10 +136,14 @@ export default function NewApplicationPage() {
     }
   }
 
-  // 上傳檔案到 Storage
-  const uploadFileToStorage = async (file: File, folder: string, uuid: string) => {
+  // 上傳檔案到 Storage（使用 UUID v7 作為唯一檔名，保護隱私）
+  const uploadFileToStorage = async (file: File, folder: string, docType: string) => {
+    // 動態匯入 uuid
+    const { v7: uuidv7 } = await import('uuid')
+
     const fileExt = file.type === 'image/png' ? 'png' : 'jpg'
-    const fileName = `${folder}/${uuid}.${fileExt}`
+    const uniqueId = uuidv7()
+    const fileName = `${folder}/${uniqueId}_${docType}.${fileExt}`
 
     const { data, error } = await supabase.storage
       .from('media')
@@ -135,7 +178,10 @@ export default function NewApplicationPage() {
           phone_number: formData.phone_number,
           address: formData.address,
           bank_code: formData.bank_code,
-          bank_account: formData.bank_account
+          bank_name: formData.bank_name || null,
+          bank_branch: formData.bank_branch || null,
+          bank_account: formData.bank_account,
+          account_name: formData.account_name || null
         }])
         .select()
         .single()
@@ -145,35 +191,28 @@ export default function NewApplicationPage() {
       const newApplicationId = applicationData.id
       setApplicationId(newApplicationId)
 
-      // 3. 上傳所有檔案
-      const uploads: Promise<string>[] = []
+      // 3. 上傳所有檔案（使用 UUID v7 唯一檔名，保護個資隱私）
       const updateData: any = {}
 
       if (fileData.frontIdPhoto) {
-        uploads.push(uploadFileToStorage(fileData.frontIdPhoto, 'front_id', newApplicationId))
-        updateData.front_id_photo = `front_id/${newApplicationId}.jpg`
+        const path = await uploadFileToStorage(fileData.frontIdPhoto, 'front_id', 'front')
+        updateData.front_id_photo = path
       }
 
       if (fileData.backIdPhoto) {
-        uploads.push(uploadFileToStorage(fileData.backIdPhoto, 'back_id', newApplicationId))
-        updateData.back_id_photo = `back_id/${newApplicationId}.jpg`
+        const path = await uploadFileToStorage(fileData.backIdPhoto, 'back_id', 'back')
+        updateData.back_id_photo = path
       }
 
       if (fileData.bankPhoto) {
-        uploads.push(uploadFileToStorage(fileData.bankPhoto, 'bank_account', newApplicationId))
-        updateData.bank_photo = `bank_account/${newApplicationId}.jpg`
+        const path = await uploadFileToStorage(fileData.bankPhoto, 'bank_account', 'bank')
+        updateData.bank_photo = path
       }
 
-      if (fileData.signature) {
-        uploads.push(uploadFileToStorage(fileData.signature, 'signature', newApplicationId))
-        updateData.signature = `signature/${newApplicationId}.png`
-      }
+      // 簽名已移除，不再上傳簽名檔案
 
-      // 4. 執行所有檔案上傳
-      if (uploads.length > 0) {
-        await Promise.all(uploads)
-
-        // 5. 更新資料庫記錄
+      // 4. 更新資料庫記錄（如果有檔案上傳）
+      if (Object.keys(updateData).length > 0) {
         const { error: updateError } = await supabase
           .from('disaster_applications')
           .update(updateData)
@@ -211,148 +250,9 @@ export default function NewApplicationPage() {
     return fileData.frontIdPhoto && fileData.backIdPhoto && fileData.bankPhoto
   }
 
-  const validateSignature = () => {
-    return fileData.signature
-  }
+  // 簽名驗證已移除（不再需要電子簽名）
 
-  // 第一步：上人慰問信
-  if (currentStep === 'comfort-letter') {
-    return (
-      <div className="min-h-screen flex flex-col">
-        {/* Header - RWD 友善 */}
-        <div className="bg-background border-b border-divider p-3 md:p-4">
-          {/* 桌面版 Header */}
-          <div className="hidden md:flex justify-between items-center max-w-6xl mx-auto">
-            <div className="flex items-center gap-4">
-              <Logo width={40} height={40} />
-              <div>
-                <h1 className="text-xl font-bold">{t('application.title')}</h1>
-                <p className="text-sm text-default-500">{t('application.step1')} (1/3)</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Progress value={33} size="sm" className="w-24" />
-              <ThemeSwitcher />
-              <LanguageSwitcher />
-              <Button variant="ghost" onClick={() => router.push('/dashboard')}>返回</Button>
-            </div>
-          </div>
-
-          {/* 手機版 Header */}
-          <div className="md:hidden space-y-3">
-            <div className="flex justify-between items-center">
-              <Logo width={32} height={32} />
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  onClick={() => router.push('/dashboard')}
-                  size="sm"
-                  className="px-2"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z" />
-                  </svg>
-                </Button>
-                <MobileMenu showLogout={true} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <p className="text-sm text-default-500">{t('application.step1')}</p>
-                <span className="text-xs text-default-400">1/3</span>
-              </div>
-              <Progress value={33} color="primary" size="sm" />
-            </div>
-          </div>
-        </div>
-
-        {/* Container */}
-        <div className="flex-1 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950 p-4 md:p-8">
-          <div className="max-w-6xl mx-auto h-full flex flex-col gap-8 justify-center items-center">
-            <div className="flex flex-col md:flex-row gap-4 md:gap-8">
-              {/* Mobile: 001在上, Desktop: 002在左 */}
-              <Card className="shadow-2xl cursor-pointer hover:shadow-3xl transition-shadow order-1 md:order-2">
-                <CardBody className="p-0">
-                  <img
-                    src="/content/letter-page-1.jpg"
-                    alt="上人慰問信 - 第一頁 (001)"
-                    className="h-auto max-h-[50vh] md:max-h-[60vh] object-contain rounded-lg w-full"
-                    onClick={() => setSelectedImage('/content/letter-page-1.jpg')}
-                  />
-                </CardBody>
-              </Card>
-              {/* Mobile: 002在下, Desktop: 001在右 */}
-              <Card className="shadow-2xl cursor-pointer hover:shadow-3xl transition-shadow order-2 md:order-1">
-                <CardBody className="p-0">
-                  <img
-                    src="/content/letter-page-2.jpg"
-                    alt="上人慰問信 - 第二頁 (002)"
-                    className="h-auto max-h-[50vh] md:max-h-[60vh] object-contain rounded-lg w-full"
-                    onClick={() => setSelectedImage('/content/letter-page-2.jpg')}
-                  />
-                </CardBody>
-              </Card>
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="bg-background border-t border-divider p-6">
-          <div className="flex justify-between items-center max-w-6xl mx-auto">
-            <Button
-              as="a"
-              href="/content/comfort-letter.pdf"
-              target="_blank"
-              variant="ghost"
-              startContent={
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
-                </svg>
-              }
-            >
-{t('application.downloadPdf')}
-            </Button>
-            <Button color="primary" size="lg" onClick={handleNext} className="px-8 py-3">
-              {t('application.readAndContinue')}
-            </Button>
-          </div>
-        </div>
-
-        {/* 全螢幕圖片 Modal */}
-        <Modal
-          isOpen={!!selectedImage}
-          onClose={() => setSelectedImage(null)}
-          size="full"
-          classNames={{
-            base: "bg-black/90",
-            backdrop: "bg-black/50"
-          }}
-          isDismissable
-          isKeyboardDismissDisabled={false}
-        >
-          <ModalContent>
-            <ModalHeader className="text-white cursor-pointer" onClick={() => setSelectedImage(null)}>
-              {selectedImage?.includes('page-1') ? '第一頁' : '第二頁'} （點擊任何地方關閉）
-            </ModalHeader>
-            <ModalBody
-              className="flex items-center justify-center p-4 cursor-pointer"
-              onClick={() => setSelectedImage(null)}
-            >
-              {selectedImage && (
-                <img
-                  src={selectedImage}
-                  alt="放大檢視"
-                  className="max-w-[95vw] max-h-[85vh] object-contain rounded-lg shadow-2xl"
-                />
-              )}
-            </ModalBody>
-          </ModalContent>
-        </Modal>
-      </div>
-    )
-  }
-
-  // 第二步：個資授權同意書
+  // 第一步：個資授權同意書
   if (currentStep === 'consent-form') {
     return (
       <div className="min-h-screen flex flex-col">
@@ -364,11 +264,11 @@ export default function NewApplicationPage() {
               <Logo width={40} height={40} />
               <div>
                 <h1 className="text-xl font-bold">救災個資收集申請</h1>
-                <p className="text-sm text-default-500">個資授權同意書 (2/3)</p>
+                <p className="text-sm text-default-500">個資收集同意聲明 (1/3)</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Progress value={66} size="sm" className="w-24" />
+              <Progress value={33} size="sm" className="w-24" aria-label="進度 33%" />
               <ThemeSwitcher />
               <LanguageSwitcher />
               <Button variant="ghost" onClick={() => router.push('/dashboard')}>返回</Button>
@@ -397,9 +297,9 @@ export default function NewApplicationPage() {
               <h1 className="text-lg font-bold">救災個資收集申請</h1>
               <div className="flex justify-between items-center">
                 <p className="text-sm text-default-500">個資授權同意書</p>
-                <span className="text-xs text-default-400">2/3</span>
+                <span className="text-xs text-default-400">1/3</span>
               </div>
-              <Progress value={66} color="primary" size="sm" />
+              <Progress value={33} color="primary" size="sm" aria-label="進度 33%" />
             </div>
           </div>
         </div>
@@ -477,6 +377,7 @@ export default function NewApplicationPage() {
                       type="checkbox"
                       checked={isAgreed}
                       onChange={(e) => setIsAgreed(e.target.checked)}
+                      aria-label="同意授權條款"
                       className="mt-1"
                     />
                     <span className="text-sm">
@@ -499,10 +400,29 @@ export default function NewApplicationPage() {
               color="primary"
               size="lg"
               onClick={handleNext}
-              isDisabled={!isAgreed}
-              className="px-8 py-3"
+              isDisabled={!isAgreed || !isComplete}
+              className="px-8 py-3 relative"
             >
-{t('application.agreeAndContinue')}
+              {!isComplete ? (
+                <span className="flex items-center gap-2">
+                  <span className="text-lg font-bold">{timeLeft}</span>
+                  <span>秒後可同意</span>
+                </span>
+              ) : (
+                t('application.agreeAndContinue')
+              )}
+              {!isComplete && (
+                <Progress
+                  value={percentage}
+                  size="sm"
+                  color="warning"
+                  aria-label={`剩餘 ${timeLeft} 秒`}
+                  className="absolute bottom-0 left-0 right-0 h-1 rounded-b-lg"
+                  classNames={{
+                    indicator: "bg-gradient-to-r from-yellow-400 to-orange-400"
+                  }}
+                />
+              )}
             </Button>
           </div>
         </div>
@@ -523,12 +443,12 @@ export default function NewApplicationPage() {
               <div>
                 <h1 className="text-xl font-bold">{t('application.title')}</h1>
                 <p className="text-sm text-default-500">
-{t(`application.subStep${currentSubStep}`)} ({currentSubStep}/4) - {i18n.language === 'zh-TW' ? '第3步' : 'Step 3'}
+{t(`application.subStep${currentSubStep}`)} ({currentSubStep}/4) - {i18n.language === 'zh-TW' ? '第2步' : 'Step 2'}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Progress value={66 + (currentSubStep / 4) * 34} size="sm" className="w-24" color="success" />
+              <Progress value={33 + (currentSubStep / 4) * 34} size="sm" className="w-24" color="success" aria-label={`進度 ${33 + (currentSubStep / 4) * 34}%`} />
               <ThemeSwitcher />
               <LanguageSwitcher />
               <Button variant="ghost" onClick={() => router.push('/dashboard')}>返回</Button>
@@ -559,7 +479,7 @@ export default function NewApplicationPage() {
                 <p className="text-sm text-default-500">{t(`application.subStep${currentSubStep}`)}</p>
                 <span className="text-xs text-default-400">{currentSubStep}/4</span>
               </div>
-              <Progress value={66 + (currentSubStep / 4) * 34} color="success" size="sm" />
+              <Progress value={33 + (currentSubStep / 4) * 34} color="success" size="sm" aria-label={`進度 ${33 + (currentSubStep / 4) * 34}%`} />
             </div>
           </div>
         </div>
@@ -567,111 +487,280 @@ export default function NewApplicationPage() {
         {/* Container */}
         <div className="flex-1 p-4 md:p-8 overflow-y-auto">
           <div className="max-w-4xl mx-auto">
-            {/* 子步驟 1: 基本資料填寫 */}
+            {/* 子步驟 1: 身份證拍照與 OCR */}
             {currentSubStep === 1 && (
               <Card className="shadow-lg">
                 <CardHeader className="flex flex-col items-start space-y-2">
-                  <h2 className="text-lg font-bold">{t('application.basicInfo')}</h2>
-                  <p className="text-sm text-default-500">{t('application.basicInfoDesc')}</p>
+                  <h2 className="text-lg font-bold">身份證拍照辨識</h2>
+                  <p className="text-sm text-default-500">請拍攝身份證正反面，系統將自動識別資料</p>
                 </CardHeader>
                 <CardBody className="space-y-6">
-                  {/* 一列一列的表單欄位 */}
-                  <div className="space-y-6">
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        1. {t('application.victimName')} <span className="text-danger">{t('application.required')}</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.victim_name}
-                        onChange={(e) => setFormData(prev => ({ ...prev, victim_name: e.target.value }))}
-                        placeholder={t('application.victimNamePlaceholder')}
-                        className={`w-full px-4 py-3 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 ${
-                          formData.victim_name.trim()
-                            ? 'border-success focus:border-success focus:ring-success/20'
-                            : 'border-default-300 focus:border-primary focus:ring-primary/20'
-                        }`}
-                      />
-                      {!formData.victim_name.trim() && (
-                        <p className="text-xs text-danger mt-1">{i18n.language === 'zh-TW' ? '此欄位為必填' : 'This field is required'}</p>
-                      )}
+                  <div className="grid md:grid-cols-2 gap-6">
+                    {/* 身份證正面 */}
+                    <div className="space-y-4">
+                      <h3 className="text-md font-semibold text-primary">身份證正面</h3>
+
+                      {/* 拍照/上傳區域 */}
+                      <div className="relative">
+                        <CameraCapture
+                          label="身份證正面"
+                          onCapture={async (file) => {
+                            // 流程: 圖片上傳 → EXIF 方向自動修正 → 使用者確認，儲存 → 轉換為 base64 → 加上提示詞送至 OCR API
+                            // file 是經過 ImageEditor 處理後的 File 物件（已完成 EXIF 修正）
+                            const imageUrl = URL.createObjectURL(file)
+                            setFormData(prev => ({ ...prev, front_id_photo: imageUrl }))
+
+                            // 呼叫 OCR API（圖片會在 xinference-client 中轉換為 base64）
+                            try {
+                              setIsProcessingOCR(true)
+                              setOCRMessage('AI 正在辨識身分證正面，請稍候...')
+
+                              const formDataApi = new FormData()
+                              formDataApi.append('image', file)
+                              formDataApi.append('type', 'front')
+
+                              const response = await fetch('/api/ocr', {
+                                method: 'POST',
+                                body: formDataApi
+                              })
+
+                              if (response.ok) {
+                                const result = await response.json()
+                                if (result.data) {
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    victim_name: result.data.name || prev.victim_name,
+                                    id_number: result.data.idNumber || prev.id_number
+                                  }))
+                                }
+                              }
+                            } catch (error) {
+                              console.error('OCR failed:', error)
+                            } finally {
+                              setIsProcessingOCR(false)
+                            }
+                          }}
+                          currentImage={formData.front_id_photo}
+                        />
+                      </div>
+
+                      {/* OCR 識別結果輸入框 */}
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1">
+                            姓名 <span className="text-danger">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={formData.victim_name}
+                            onChange={(e) => setFormData(prev => ({ ...prev, victim_name: e.target.value }))}
+                            aria-label="姓名"
+                            placeholder="請輸入姓名"
+                            className={`w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 ${
+                              formData.victim_name.trim()
+                                ? 'border-success focus:border-success focus:ring-success/20'
+                                : 'border-default-300 focus:border-primary focus:ring-primary/20'
+                            }`}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1">
+                            身分證字號 <span className="text-danger">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={formData.id_number}
+                            aria-label="身分證字號"
+                            onChange={(e) => {
+                              const value = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+                              if (value.length <= 10) {
+                                setFormData(prev => ({ ...prev, id_number: value }))
+                              }
+                            }}
+                            placeholder="A123456789"
+                            maxLength={10}
+                            className={`w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 ${
+                              /^[A-Z][0-9]{9}$/.test(formData.id_number)
+                                ? 'border-success focus:border-success focus:ring-success/20'
+                                : 'border-default-300 focus:border-primary focus:ring-primary/20'
+                            }`}
+                          />
+                          {formData.id_number && !/^[A-Z][0-9]{9}$/.test(formData.id_number) && (
+                            <p className="text-xs text-danger mt-1">
+                              {i18n.language === 'zh-TW' ? '格式錯誤：需要1個英文字母 + 9個數字' : 'Invalid format: 1 letter + 9 digits required'}
+                            </p>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        2. {t('application.idNumber')} <span className="text-danger">{t('application.required')}</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.id_number}
-                        onChange={(e) => {
-                          // 只允許英文字母和數字，自動大寫
-                          const value = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
-                          if (value.length <= 10) {
-                            setFormData(prev => ({ ...prev, id_number: value }))
+                    {/* 身份證背面 */}
+                    <div className="space-y-4">
+                      <h3 className="text-md font-semibold text-primary">身份證背面</h3>
+
+                      {/* 拍照/上傳區域 */}
+                      <div className="relative">
+                        <CameraCapture
+                          label="身份證背面"
+                          onCapture={async (file) => {
+                            // file 現在是 File 物件，不是 URL
+                            const imageUrl = URL.createObjectURL(file)
+                            setFormData(prev => ({ ...prev, back_id_photo: imageUrl }))
+
+                            // 呼叫 OCR API
+                            try {
+                              setIsProcessingOCR(true)
+                              setOCRMessage('AI 正在辨識身分證背面，請稍候...')
+
+                              const formDataApi = new FormData()
+                              formDataApi.append('image', file)
+                              formDataApi.append('type', 'back')
+
+                              const response = await fetch('/api/ocr', {
+                                method: 'POST',
+                                body: formDataApi
+                              })
+
+                              if (response.ok) {
+                                const result = await response.json()
+                                if (result.data) {
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    address: result.data.address || prev.address
+                                  }))
+                                }
+                              }
+                            } catch (error) {
+                              console.error('OCR failed:', error)
+                            } finally {
+                              setIsProcessingOCR(false)
+                            }
+                          }}
+                          currentImage={formData.back_id_photo}
+                        />
+                      </div>
+
+                      {/* OCR 識別結果輸入框 */}
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-sm font-medium text-foreground mb-1">
+                            戶籍地址 <span className="text-danger">*</span>
+                          </label>
+                          <textarea
+                            value={formData.address}
+                            onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
+                            placeholder="請輸入戶籍地址"
+                            aria-label="戶籍地址"
+                            rows={3}
+                            className={`w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 resize-none ${
+                              formData.address.trim()
+                                ? 'border-success focus:border-success focus:ring-success/20'
+                                : 'border-default-300 focus:border-primary focus:ring-primary/20'
+                            }`}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardBody>
+              </Card>
+            )}
+
+            {/* 子步驟 2: 銀行存摺拍照與資料填寫 */}
+            {currentSubStep === 2 && (
+              <Card className="shadow-lg">
+                <CardHeader className="flex flex-col items-start space-y-2">
+                  <h2 className="text-lg font-bold">銀行存摺資料</h2>
+                  <p className="text-sm text-default-500">請拍攝存摺封面並填寫銀行資料</p>
+                </CardHeader>
+                <CardBody className="space-y-6">
+                  {/* 存摺拍照 */}
+                  <div>
+                    <h3 className="text-md font-semibold text-primary mb-4">存摺封面拍照</h3>
+                    <CameraCapture
+                      label="銀行存摺"
+                      onCapture={async (file) => {
+                        // file 現在是 File 物件，不是 URL
+                        const imageUrl = URL.createObjectURL(file)
+                        setFormData(prev => ({ ...prev, bank_photo: imageUrl }))
+
+                        // 呼叫 OCR API 進行存摺識別
+                        try {
+                          setIsProcessingOCR(true)
+                          setOCRMessage('AI 正在辨識銀行存摺，請稍候...')
+
+                          const formDataApi = new FormData()
+                          formDataApi.append('image', file)
+                          formDataApi.append('type', 'bank')
+
+                          const response = await fetch('/api/ocr', {
+                            method: 'POST',
+                            body: formDataApi
+                          })
+
+                          if (response.ok) {
+                            const result = await response.json()
+                            if (result.data) {
+                              // 自動填入識別的銀行資料
+                              // 處理可能的欄位名稱變化
+                              const bankName = result.data.銀行 || result.data.bank || result.data.bankName
+                              const branch = result.data.分行 || result.data.分會 || result.data.分社 || result.data.branch || result.data.branchName
+                              const accountName = result.data.戶名 || result.data.accountName || result.data.name
+                              const accountNumber = result.data.銀行帳號 || result.data.帳號 || result.data.accountNumber || result.data.account
+
+                              // 如果識別到銀行名稱，嘗試找到對應的銀行代碼
+                              if (bankName) {
+                                const bank = bankCodes.find(b => b.name.includes(bankName) || bankName.includes(b.name))
+                                if (bank) {
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    bank_code: bank.code,
+                                    bank_name: bank.name
+                                  }))
+                                }
+                              }
+
+                              // 填入其他識別的資料
+                              if (branch) {
+                                setFormData(prev => ({
+                                  ...prev,
+                                  bank_branch: branch
+                                }))
+                              }
+
+                              if (accountName) {
+                                setFormData(prev => ({
+                                  ...prev,
+                                  account_name: accountName
+                                }))
+                              }
+
+                              if (accountNumber) {
+                                // 清理帳號中的空格或破折號
+                                const cleanedAccount = accountNumber.replace(/[\s\-]/g, '')
+                                setFormData(prev => ({
+                                  ...prev,
+                                  bank_account: cleanedAccount
+                                }))
+                              }
+                            }
                           }
-                        }}
-                        placeholder="A123456789"
-                        maxLength={10}
-                        className={`w-full px-4 py-3 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 ${
-                          /^[A-Z][0-9]{9}$/.test(formData.id_number)
-                            ? 'border-success focus:border-success focus:ring-success/20'
-                            : 'border-default-300 focus:border-primary focus:ring-primary/20'
-                        }`}
-                      />
-                      {formData.id_number && !/^[A-Z][0-9]{9}$/.test(formData.id_number) && (
-                        <p className="text-xs text-danger mt-1">
-                          {i18n.language === 'zh-TW' ? '格式錯誤：需要1個英文字母 + 9個數字' : 'Invalid format: 1 letter + 9 digits required'}
-                        </p>
-                      )}
-                      {(!formData.id_number || /^[A-Z][0-9]{9}$/.test(formData.id_number)) && (
-                        <p className="text-xs text-default-400 mt-1">{t('application.idNumberFormat')}</p>
-                      )}
-                    </div>
+                        } catch (error) {
+                          console.error('OCR failed:', error)
+                        } finally {
+                          setIsProcessingOCR(false)
+                        }
+                      }}
+                      currentImage={formData.bank_photo}
+                    />
+                  </div>
 
+                  {/* 銀行資料輸入 */}
+                  <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-foreground mb-2">
-                        3. {t('application.phoneNumber')} <span className="text-danger">{t('application.required')}</span>
-                      </label>
-                      <input
-                        type="tel"
-                        value={formData.phone_number}
-                        onChange={(e) => {
-                          // 只允許數字和連字號
-                          const value = e.target.value.replace(/[^0-9\-]/g, '')
-                          if (value.length <= 12) {
-                            setFormData(prev => ({ ...prev, phone_number: value }))
-                          }
-                        }}
-                        placeholder="09xxxxxxxx"
-                        maxLength={12}
-                        className={`w-full px-4 py-3 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 ${
-                          /^[0-9\-]{8,12}$/.test(formData.phone_number)
-                            ? 'border-success focus:border-success focus:ring-success/20'
-                            : 'border-default-300 focus:border-primary focus:ring-primary/20'
-                        }`}
-                      />
-                      {formData.phone_number && !/^[0-9\-]{8,12}$/.test(formData.phone_number) && (
-                        <p className="text-xs text-danger mt-1">{i18n.language === 'zh-TW' ? '請輸入8-12位數字' : 'Enter 8-12 digits'}</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        4. {t('application.address')} <span className="text-danger">{t('application.required')}</span>
-                      </label>
-                      <textarea
-                        value={formData.address}
-                        onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
-                        placeholder={t('application.addressPlaceholder')}
-                        rows={3}
-                        className="w-full px-4 py-3 border border-default-300 rounded-lg bg-content1 text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-foreground mb-2">
-                        5. {t('application.bankCode')} <span className="text-danger">{t('application.required')}</span>
+                        銀行代碼 <span className="text-danger">*</span>
                       </label>
                       <div className="w-full">
                         <BankSelector
@@ -685,30 +774,48 @@ export default function NewApplicationPage() {
                             }))
                           }}
                           label=""
-                          placeholder={t('application.bankCodePlaceholder')}
+                          placeholder="請選擇銀行"
                           isRequired
                         />
                       </div>
-                      <p className="text-xs text-default-400 mt-1">{t('application.bankCodeExample')}</p>
+                      <p className="text-xs text-default-400 mt-1">例：中國信託(822)、台北富邦(012)</p>
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium text-foreground mb-2">
-                        6. {t('application.bankAccount')} <span className="text-danger">{t('application.required')}</span>
+                        分行（分會） <span className="text-danger">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.bank_branch}
+                        aria-label="分行（分會）"
+                        onChange={(e) => setFormData(prev => ({ ...prev, bank_branch: e.target.value }))}
+                        placeholder="請輸入分行或分會名稱"
+                        className={`w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 ${
+                          formData.bank_branch.trim()
+                            ? 'border-success focus:border-success focus:ring-success/20'
+                            : 'border-default-300 focus:border-primary focus:ring-primary/20'
+                        }`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        銀行帳號 <span className="text-danger">*</span>
                       </label>
                       <input
                         type="tel"
                         value={formData.bank_account}
+                        aria-label="銀行帳號"
                         onChange={(e) => {
-                          // 只允許數字
                           const value = e.target.value.replace(/[^0-9]/g, '')
                           if (value.length <= 20) {
                             setFormData(prev => ({ ...prev, bank_account: value }))
                           }
                         }}
-                        placeholder={t('application.bankAccountPlaceholder')}
+                        placeholder="請輸入銀行帳號"
                         maxLength={20}
-                        className={`w-full px-4 py-3 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 ${
+                        className={`w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 ${
                           formData.bank_account && /^[0-9]{5,20}$/.test(formData.bank_account)
                             ? 'border-success focus:border-success focus:ring-success/20'
                             : 'border-default-300 focus:border-primary focus:ring-primary/20'
@@ -718,47 +825,22 @@ export default function NewApplicationPage() {
                         <p className="text-xs text-danger mt-1">{i18n.language === 'zh-TW' ? '請輸入5-20位數字' : 'Enter 5-20 digits'}</p>
                       )}
                     </div>
-                  </div>
-                </CardBody>
-              </Card>
-            )}
-
-            {/* 子步驟 2: 證件拍照 */}
-            {currentSubStep === 2 && (
-              <Card className="shadow-lg">
-                <CardHeader className="flex flex-col items-start space-y-2">
-                  <h2 className="text-lg font-bold">{t('application.documentPhoto')}</h2>
-                  <p className="text-sm text-default-500">{t('application.documentPhotoDesc')}</p>
-                </CardHeader>
-                <CardBody className="space-y-8">
-                  <div className="space-y-8">
-                    <div>
-                      <h3 className="text-md font-semibold mb-4 text-primary">1. {t('application.idFront')}</h3>
-                      <CameraCapture
-                        label={t('application.idFront')}
-                        onCapture={(file) => setFileData(prev => ({ ...prev, frontIdPhoto: file }))}
-                        isRequired
-                        currentImage={fileData.frontIdPhoto ? URL.createObjectURL(fileData.frontIdPhoto) : null}
-                      />
-                    </div>
 
                     <div>
-                      <h3 className="text-md font-semibold mb-4 text-primary">2. {t('application.idBack')}</h3>
-                      <CameraCapture
-                        label={t('application.idBack')}
-                        onCapture={(file) => setFileData(prev => ({ ...prev, backIdPhoto: file }))}
-                        isRequired
-                        currentImage={fileData.backIdPhoto ? URL.createObjectURL(fileData.backIdPhoto) : null}
-                      />
-                    </div>
-
-                    <div>
-                      <h3 className="text-md font-semibold mb-4 text-primary">3. {t('application.bankProof')}</h3>
-                      <CameraCapture
-                        label={t('application.bankProofDoc')}
-                        onCapture={(file) => setFileData(prev => ({ ...prev, bankPhoto: file }))}
-                        isRequired
-                        currentImage={fileData.bankPhoto ? URL.createObjectURL(fileData.bankPhoto) : null}
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        戶名 <span className="text-danger">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.account_name}
+                        aria-label="戶名"
+                        onChange={(e) => setFormData(prev => ({ ...prev, account_name: e.target.value }))}
+                        placeholder="請輸入銀行帳戶戶名"
+                        className={`w-full px-3 py-2 border rounded-lg bg-content1 text-foreground focus:outline-none focus:ring-2 ${
+                          formData.account_name.trim()
+                            ? 'border-success focus:border-success focus:ring-success/20'
+                            : 'border-default-300 focus:border-primary focus:ring-primary/20'
+                        }`}
                       />
                     </div>
                   </div>
@@ -766,116 +848,283 @@ export default function NewApplicationPage() {
               </Card>
             )}
 
-            {/* 子步驟 3: 電子簽名 */}
+            {/* 子步驟 3: 確認所有資料 */}
             {currentSubStep === 3 && (
               <Card className="shadow-lg">
                 <CardHeader className="flex flex-col items-start space-y-2">
-                  <h2 className="text-lg font-bold">{t('application.electronicSignature')}</h2>
-                  <p className="text-sm text-default-500">{t('application.signatureDesc')}</p>
+                  <h2 className="text-lg font-bold">資料確認</h2>
+                  <p className="text-sm text-default-500">請確認所有資料無誤後繼續</p>
                 </CardHeader>
                 <CardBody className="space-y-6">
-                  <SignatureCanvas
-                    label={t('application.handwrittenSignature')}
-                    onSave={(file) => setFileData(prev => ({ ...prev, signature: file }))}
-                    isRequired
-                    currentSignature={fileData.signature ? URL.createObjectURL(fileData.signature) : null}
-                  />
-                </CardBody>
-              </Card>
-            )}
+                  {/* 身份證資料確認 */}
+                  <div className="bg-content2 rounded-lg p-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-md font-semibold text-primary">身份證資料</h3>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        color="primary"
+                        onPress={() => setCurrentSubStep(1)}
+                        className="min-w-unit-20"
+                      >
+                        修改
+                      </Button>
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {/* 身份證照片預覽 */}
+                      <div className="space-y-3">
+                        <h4 className="text-sm font-medium text-default-600">身份證照片</h4>
+                        <div className="flex gap-2">
+                          {formData.front_id_photo ? (
+                            <div className="relative w-24 h-16 border rounded overflow-hidden">
+                              <img src={formData.front_id_photo} alt="身份證正面" className="w-full h-full object-cover" />
+                              <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs px-1">正面</span>
+                            </div>
+                          ) : (
+                            <div className="w-24 h-16 border rounded flex items-center justify-center bg-default-100 text-default-400 text-xs">
+                              未提供
+                            </div>
+                          )}
+                          {formData.back_id_photo ? (
+                            <div className="relative w-24 h-16 border rounded overflow-hidden">
+                              <img src={formData.back_id_photo} alt="身份證背面" className="w-full h-full object-cover" />
+                              <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs px-1">背面</span>
+                            </div>
+                          ) : (
+                            <div className="w-24 h-16 border rounded flex items-center justify-center bg-default-100 text-default-400 text-xs">
+                              未提供
+                            </div>
+                          )}
+                        </div>
+                      </div>
 
-            {/* 子步驟 4: 確認提交 */}
-            {currentSubStep === 4 && (
-              <Card className="shadow-lg">
-                <CardHeader>
-                  <h2 className="text-lg font-bold">確認提交</h2>
-                  <p className="text-sm text-default-500">請確認所有資料無誤後提交申請</p>
-                </CardHeader>
-                <CardBody className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* 基本資料預覽 */}
-                    <Card className="bg-content2">
-                      <CardHeader>
-                        <h3 className="font-semibold">基本資料</h3>
-                      </CardHeader>
-                      <CardBody className="space-y-3">
+                      {/* 身份資料 */}
+                      <div className="space-y-2">
                         <div className="flex justify-between">
-                          <span className="text-default-500">姓名：</span>
-                          <span>{formData.victim_name || '未填寫'}</span>
+                          <span className="text-sm text-default-500">姓名：</span>
+                          <span className="text-sm font-medium">{formData.victim_name || '未填寫'}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-default-500">身分證：</span>
-                          <span>{formData.id_number || '未填寫'}</span>
+                          <span className="text-sm text-default-500">身分證字號：</span>
+                          <span className="text-sm font-medium">{formData.id_number || '未填寫'}</span>
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-default-500">電話：</span>
-                          <span>{formData.phone_number || '未填寫'}</span>
+                        <div>
+                          <span className="text-sm text-default-500">戶籍地址：</span>
+                          <p className="text-sm font-medium mt-1">{formData.address || '未填寫'}</p>
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-default-500">地址：</span>
-                          <span className="text-right text-xs">{formData.address || '未填寫'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-default-500">銀行：</span>
-                          <span className="text-xs">{formData.bank_code ? `${formData.bank_code} - ${formData.bank_name}` : '未填寫'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-default-500">帳號：</span>
-                          <span>{formData.bank_account || '未填寫'}</span>
-                        </div>
-                      </CardBody>
-                    </Card>
-
-                    {/* 檔案預覽 */}
-                    <Card className="bg-content2">
-                      <CardHeader>
-                        <h3 className="font-semibold">上傳檔案</h3>
-                      </CardHeader>
-                      <CardBody className="space-y-3">
-                        <div className="flex justify-between items-center">
-                          <span className="text-default-500">身分證正面：</span>
-                          <span className={fileData.frontIdPhoto ? 'text-success' : 'text-danger'}>
-                            {fileData.frontIdPhoto ? '✓ 已上傳' : '✗ 未上傳'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-default-500">身分證反面：</span>
-                          <span className={fileData.backIdPhoto ? 'text-success' : 'text-danger'}>
-                            {fileData.backIdPhoto ? '✓ 已上傳' : '✗ 未上傳'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-default-500">銀行證明：</span>
-                          <span className={fileData.bankPhoto ? 'text-success' : 'text-danger'}>
-                            {fileData.bankPhoto ? '✓ 已上傳' : '✗ 未上傳'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-default-500">電子簽名：</span>
-                          <span className={fileData.signature ? 'text-success' : 'text-danger'}>
-                            {fileData.signature ? '✓ 已完成' : '✗ 未完成'}
-                          </span>
-                        </div>
-                      </CardBody>
-                    </Card>
+                      </div>
+                    </div>
                   </div>
 
-                  {submitError && (
-                    <div className="bg-danger-50 p-4 rounded-lg border border-danger-200 text-center">
-                      <p className="text-danger-800">
-                        <strong>提交錯誤：</strong>{submitError}
-                      </p>
+                  {/* 銀行資料確認 */}
+                  <div className="bg-content2 rounded-lg p-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-md font-semibold text-primary">銀行存摺資料</h3>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        color="primary"
+                        onPress={() => setCurrentSubStep(2)}
+                        className="min-w-unit-20"
+                      >
+                        修改
+                      </Button>
                     </div>
-                  )}
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {/* 存摺照片預覽 */}
+                      <div className="space-y-3">
+                        <h4 className="text-sm font-medium text-default-600">存摺照片</h4>
+                        {formData.bank_photo ? (
+                          <div className="relative w-32 h-24 border rounded overflow-hidden">
+                            <img src={formData.bank_photo} alt="銀行存摺" className="w-full h-full object-cover" />
+                          </div>
+                        ) : (
+                          <div className="w-32 h-24 border rounded flex items-center justify-center bg-default-100 text-default-400 text-xs">
+                            未提供
+                          </div>
+                        )}
+                      </div>
 
-                  <div className="bg-success-50 p-4 rounded-lg border border-success-200 text-center">
-                    <p className="text-success-800">
-                      <strong>提交後注意事項：</strong>資料提交後將無法修改，請確認所有資料正確無誤。
+                      {/* 銀行資料 */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-sm text-default-500">銀行代碼：</span>
+                          <span className="text-sm font-medium">{formData.bank_code ? `${formData.bank_code} - ${formData.bank_name}` : '未填寫'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-default-500">分行（分會）：</span>
+                          <span className="text-sm font-medium">{formData.bank_branch || '未填寫'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-default-500">銀行帳號：</span>
+                          <span className="text-sm font-medium">{formData.bank_account || '未填寫'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-default-500">戶名：</span>
+                          <span className="text-sm font-medium">{formData.account_name || '未填寫'}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 簽名區域 - 選填 */}
+                  <div className="bg-content2 rounded-lg p-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-md font-semibold text-primary">申請人簽名（選填）</h3>
+                      <span className="text-sm text-warning">非必填項目</span>
+                    </div>
+                    <p className="text-sm text-default-600 mb-4">
+                      如您方便，可在此處簽名。若不方便在電腦上簽名，可選擇略過此步驟。
+                    </p>
+                    <SignatureCanvas
+                      onSave={(signature) => {
+                        setFormData(prev => ({ ...prev, signature }))
+                      }}
+                      width={300}
+                      height={150}
+                      currentSignature={formData.signature}
+                    />
+                    <p className="text-xs text-default-500 mt-2">
+                      * 長者或行動不便者可選擇不簽名
                     </p>
                   </div>
                 </CardBody>
               </Card>
             )}
+
+            {/* 子步驟 4: 聯絡方式選擇 */}
+            {currentSubStep === 4 && (
+              <Card className="shadow-lg">
+                <CardHeader className="flex flex-col items-start space-y-2">
+                  <h2 className="text-lg font-bold">聯絡方式</h2>
+                  <p className="text-sm text-default-500">請選擇您的聯絡方式偏好</p>
+                </CardHeader>
+                <CardBody className="space-y-6">
+                  <div className="space-y-4">
+                    {/* 提供手機號碼選項 */}
+                    <Card
+                      className={`cursor-pointer border-2 transition-colors ${
+                        formData.contactOption === 'provide'
+                          ? 'border-primary bg-primary-50'
+                          : 'border-default-200 hover:border-default-400'
+                      }`}
+                      isPressable={formData.contactOption !== 'provide'}
+                      onClick={() => {
+                        if (formData.contactOption !== 'provide') {
+                          setFormData({...formData, contactOption: 'provide'})
+                          setTempPhoneNumber(formData.phone_number)
+                          setShowNumberPad(true)
+                        }
+                      }}
+                    >
+                      <CardBody className="p-6">
+                        <div className="flex items-start gap-4">
+                          <div className={`rounded-full w-5 h-5 border-2 flex items-center justify-center ${
+                            formData.contactOption === 'provide'
+                              ? 'border-primary'
+                              : 'border-default-400'
+                          }`}>
+                            {formData.contactOption === 'provide' && (
+                              <div className="w-3 h-3 bg-primary rounded-full" />
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="text-md font-semibold mb-2">提供手機號碼</h3>
+                            <p className="text-sm text-default-600 mb-3">
+                              我願意提供手機號碼，以便接收申請進度通知與重要訊息
+                            </p>
+                            {formData.contactOption === 'provide' && formData.phone_number && (
+                              <div className="mt-4 bg-white dark:bg-gray-800 rounded-lg p-4">
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <p className="text-sm font-medium">手機號碼</p>
+                                    <p className="text-lg text-primary">{formData.phone_number}</p>
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="light"
+                                    color="primary"
+                                    onPress={() => {
+                                      setTempPhoneNumber(formData.phone_number)
+                                      setShowNumberPad(true)
+                                    }}
+                                  >
+                                    修改
+                                  </Button>
+                                </div>
+                                <p className="text-xs text-default-500 mt-2">
+                                  * 我們將透過簡訊通知您申請進度
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </CardBody>
+                    </Card>
+
+                    {/* 不提供手機號碼選項 */}
+                    <Card
+                      className={`cursor-pointer border-2 transition-colors ${
+                        formData.contactOption === 'skip'
+                          ? 'border-primary bg-primary-50'
+                          : 'border-default-200 hover:border-default-400'
+                      }`}
+                      isPressable
+                      onClick={() => setFormData({...formData, contactOption: 'skip', phone_number: ''})}
+                    >
+                      <CardBody className="p-6">
+                        <div className="flex items-start gap-4">
+                          <div className={`rounded-full w-5 h-5 border-2 flex items-center justify-center ${
+                            formData.contactOption === 'skip'
+                              ? 'border-primary'
+                              : 'border-default-400'
+                          }`}>
+                            {formData.contactOption === 'skip' && (
+                              <div className="w-3 h-3 bg-primary rounded-full" />
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="text-md font-semibold mb-2">暫不提供手機號碼</h3>
+                            <p className="text-sm text-default-600 mb-3">
+                              我暫時無法提供手機號碼，了解可能無法即時收到申請進度通知
+                            </p>
+                            {formData.contactOption === 'skip' && (
+                              <div className="mt-3 bg-warning-50 rounded-lg p-3">
+                                <p className="text-xs text-warning-700">
+                                  ⚠️ 注意：不提供手機號碼將無法接收進度簡訊通知，您需要主動登入系統查看申請狀態
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </CardBody>
+                    </Card>
+                  </div>
+
+                  {/* 說明文字 */}
+                  <div className="bg-default-50 rounded-lg p-4">
+                    <p className="text-sm text-default-700">
+                      <strong>關於聯絡方式：</strong>
+                    </p>
+                    <ul className="text-sm text-default-600 mt-2 space-y-1 list-disc list-inside">
+                      <li>手機號碼僅用於申請進度通知，不會用於其他商業用途</li>
+                      <li>即使不提供手機號碼，您的申請仍會正常處理</li>
+                      <li>您可以隨時登入系統查看申請狀態</li>
+                    </ul>
+                  </div>
+
+                  {/* 提交錯誤訊息 */}
+                  {submitError && (
+                    <div className="bg-danger-50 border border-danger-200 rounded-lg p-4">
+                      <p className="text-sm text-danger-700">
+                        <strong>錯誤：</strong>{submitError}
+                      </p>
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+            )}
+
           </div>
         </div>
 
@@ -903,20 +1152,454 @@ export default function NewApplicationPage() {
                 if (currentSubStep < 4) {
                   setCurrentSubStep(currentSubStep + 1)
                 } else {
-                  // 真正提交到 Supabase
-                  handleFinalSubmit()
+                  // 進入步驟三：附加檔案上傳
+                  setCurrentStep('document-upload')
                 }
               }}
               isLoading={isSubmitting}
               isDisabled={
                 isSubmitting ||
-                (currentSubStep === 1 && !validateBasicInfo()) ||
-                (currentSubStep === 2 && !validatePhotos()) ||
-                (currentSubStep === 3 && !validateSignature())
+                (currentSubStep === 1 && !(
+                  formData.victim_name.trim() &&
+                  /^[A-Z][0-9]{9}$/.test(formData.id_number) &&
+                  formData.address.trim()
+                )) ||
+                (currentSubStep === 2 && !(
+                  formData.bank_code &&
+                  formData.bank_branch.trim() &&
+                  formData.bank_account &&
+                  /^[0-9]{5,20}$/.test(formData.bank_account) &&
+                  formData.account_name.trim()
+                )) ||
+                // 簽名現在是選填的，移除驗證
+                // (currentSubStep === 3 && !formData.signature) ||
+                (currentSubStep === 4 && (
+                  !formData.contactOption || // 沒有選擇任何選項
+                  (formData.contactOption === 'provide' && !formData.phone_number.trim())
+                ))
               }
               className="px-6 md:px-8 py-2 md:py-3"
             >
-              {isSubmitting ? t('application.submitting') : (currentSubStep === 4 ? t('application.submitApplication') : t('application.nextStep'))}
+              {isSubmitting ? t('application.submitting') : (currentSubStep === 4 ? '進入附加檔案上傳' : t('application.nextStep'))}
+            </Button>
+          </div>
+        </div>
+
+        {/* OCR Processing Modal */}
+        <Modal
+          isOpen={isProcessingOCR}
+          hideCloseButton
+          isDismissable={false}
+          placement="center"
+        >
+          <ModalContent>
+            <ModalHeader className="flex flex-col gap-1">
+              AI 辨識中
+            </ModalHeader>
+            <ModalBody className="flex flex-col items-center justify-center py-8">
+              <Spinner size="lg" color="primary" />
+              <p className="mt-4 text-center text-default-600">
+                {ocrMessage}
+              </p>
+              <p className="mt-2 text-sm text-center text-default-400">
+                這可能需要幾秒鐘的時間
+              </p>
+            </ModalBody>
+          </ModalContent>
+        </Modal>
+
+        {/* Number Pad Modal */}
+        <Modal
+          isOpen={showNumberPad}
+          onClose={() => {
+            setShowNumberPad(false)
+            setTempPhoneNumber('')
+          }}
+          placement="center"
+          size="sm"
+          hideCloseButton
+        >
+          <ModalContent>
+            <ModalHeader className="flex flex-col gap-1">
+              輸入手機號碼
+            </ModalHeader>
+            <ModalBody
+              onKeyDown={(e) => {
+                // 支援實體鍵盤輸入
+                e.preventDefault()
+                e.stopPropagation()
+
+                if (e.key >= '0' && e.key <= '9') {
+                  if (tempPhoneNumber.length < 12) {
+                    setTempPhoneNumber(prev => prev + e.key)
+                  }
+                } else if (e.key === 'Backspace') {
+                  setTempPhoneNumber(prev => prev.slice(0, -1))
+                } else if (e.key === 'Enter' && tempPhoneNumber.length >= 10) {
+                  setFormData({...formData, phone_number: tempPhoneNumber})
+                  setShowNumberPad(false)
+                } else if (e.key === 'Escape') {
+                  setShowNumberPad(false)
+                  setTempPhoneNumber('')
+                  setFormData({...formData, contactOption: '', phone_number: ''})
+                }
+              }}
+              tabIndex={0}
+              className="outline-none"
+            >
+              <div className="space-y-4">
+                {/* Phone Number Display */}
+                <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4 text-center min-h-[60px] flex items-center justify-center">
+                  <p className="text-2xl font-mono">
+                    {tempPhoneNumber || '請輸入號碼'}
+                  </p>
+                </div>
+
+                {/* Number Pad Grid */}
+                <div className="grid grid-cols-3 gap-2">
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                    <Button
+                      key={num}
+                      size="lg"
+                      variant="flat"
+                      className="h-16 text-xl font-semibold"
+                      onPress={() => {
+                        if (tempPhoneNumber.length < 12) {
+                          setTempPhoneNumber(prev => prev + num)
+                        }
+                      }}
+                    >
+                      {num}
+                    </Button>
+                  ))}
+
+                  {/* Special Buttons Row */}
+                  <Button
+                    size="lg"
+                    variant="flat"
+                    color="warning"
+                    className="h-16"
+                    onPress={() => {
+                      setTempPhoneNumber(prev => prev.slice(0, -1))
+                    }}
+                    isDisabled={!tempPhoneNumber}
+                  >
+                    ← 返回
+                  </Button>
+
+                  <Button
+                    size="lg"
+                    variant="flat"
+                    className="h-16 text-xl font-semibold"
+                    onPress={() => {
+                      if (tempPhoneNumber.length < 12) {
+                        setTempPhoneNumber(prev => prev + '0')
+                      }
+                    }}
+                  >
+                    0
+                  </Button>
+
+                  <Button
+                    size="lg"
+                    variant="flat"
+                    color="danger"
+                    className="h-16"
+                    onPress={() => {
+                      setShowNumberPad(false)
+                      setTempPhoneNumber('')
+                      setFormData({...formData, contactOption: '', phone_number: ''})
+                    }}
+                  >
+                    取消
+                  </Button>
+                </div>
+
+                {/* Confirm Button */}
+                <Button
+                  color="primary"
+                  size="lg"
+                  className="w-full h-14 text-lg"
+                  isDisabled={tempPhoneNumber.length < 10}
+                  onPress={() => {
+                    setFormData({...formData, phone_number: tempPhoneNumber})
+                    setShowNumberPad(false)
+                  }}
+                >
+                  確認 {tempPhoneNumber && `(${tempPhoneNumber.length} 位數)`}
+                </Button>
+
+                {/* 提示文字 */}
+                <p className="text-xs text-center text-default-500">
+                  提示：您也可以使用鍵盤數字鍵輸入
+                </p>
+              </div>
+            </ModalBody>
+          </ModalContent>
+        </Modal>
+      </div>
+    )
+  }
+
+  // 第三步：其他文件上傳
+  if (currentStep === 'document-upload') {
+
+    const documentTypes = [
+      { value: 'lease', label: '租賃契約' },
+      { value: 'household-registration', label: '戶籍謄本' },
+      { value: 'property-ownership', label: '房屋所有權狀' },
+      { value: 'other', label: '其他' }
+    ]
+
+    // 新增空白上傳區塊
+    const handleAddDocument = () => {
+      const newDoc = {
+        id: Date.now().toString(),
+        type: 'lease',  // 預設選擇租賃契約
+        customType: '',
+        file: null,
+        preview: null
+      }
+      setUploadedDocuments(prev => [...prev, newDoc])
+    }
+
+    // 處理檔案上傳（從 CameraCapture 或檔案選擇）
+    const handleFileCapture = (id: string, file: File) => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        setUploadedDocuments(prev =>
+          prev.map(doc => doc.id === id ? {
+            ...doc,
+            file,
+            preview: e.target?.result as string
+          } : doc)
+        )
+      }
+      reader.readAsDataURL(file)
+    }
+
+    const handleRemoveDocument = (id: string) => {
+      setUploadedDocuments(prev => prev.filter(doc => doc.id !== id))
+    }
+
+    const handleDocumentTypeChange = (id: string, newType: string) => {
+      setUploadedDocuments(prev =>
+        prev.map(doc => doc.id === id ? { ...doc, type: newType, customType: '' } : doc)
+      )
+    }
+
+    const handleCustomTypeChange = (id: string, customType: string) => {
+      setUploadedDocuments(prev =>
+        prev.map(doc => doc.id === id ? { ...doc, customType } : doc)
+      )
+    }
+
+    return (
+      <div className="min-h-screen flex flex-col">
+        {/* Header */}
+        <div className="bg-background border-b border-divider p-3 md:p-4">
+          <div className="hidden md:flex justify-between items-center max-w-6xl mx-auto">
+            <div className="flex items-center gap-4">
+              <Logo width={40} height={40} />
+              <div>
+                <h1 className="text-xl font-bold">救災個資收集申請</h1>
+                <p className="text-sm text-default-500">其他文件上傳 (3/3)</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Progress value={100} size="sm" className="w-24" aria-label="進度 100%" />
+              <ThemeSwitcher />
+              <LanguageSwitcher />
+              <Button variant="ghost" onClick={() => router.push('/dashboard')}>返回</Button>
+            </div>
+          </div>
+
+          {/* 手機版 Header */}
+          <div className="md:hidden space-y-3">
+            <div className="flex justify-between items-center">
+              <Logo width={32} height={32} />
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => router.push('/dashboard')}
+                  size="sm"
+                  className="px-2"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z" />
+                  </svg>
+                </Button>
+                <MobileMenu showLogout={true} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-lg font-bold">救災個資收集申請</h1>
+              <div className="flex justify-between items-center">
+                <p className="text-sm text-default-500">其他文件上傳</p>
+                <span className="text-xs text-default-400">3/3</span>
+              </div>
+              <Progress value={100} color="primary" size="sm" aria-label="進度 100%" />
+            </div>
+          </div>
+        </div>
+
+        {/* Container */}
+        <div className="flex-1 p-4 md:p-8 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+          <div className="max-w-4xl mx-auto">
+            <Card className="shadow-lg">
+              <CardHeader>
+                <h2 className="text-2xl font-bold">其他相關文件上傳</h2>
+                <p className="text-sm text-default-500 mt-2">
+                  如有其他相關證明文件，請在此上傳（選填）
+                </p>
+              </CardHeader>
+              <CardBody className="space-y-4">
+                {/* 文件上傳區塊 */}
+                {uploadedDocuments.map((doc) => (
+                  <Card key={doc.id} className="relative border-2 border-default-200">
+                    <CardBody className="p-4">
+                      {/* 刪除按鈕 */}
+                      <Button
+                        isIconOnly
+                        size="sm"
+                        variant="light"
+                        color="danger"
+                        onClick={() => handleRemoveDocument(doc.id)}
+                        className="absolute top-2 right-2 z-10"
+                      >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" />
+                        </svg>
+                      </Button>
+
+                      <div className="space-y-4">
+                        {/* 文件類型選擇 */}
+                        <div>
+                          <label className="text-sm font-medium mb-2 block">文件類型</label>
+                          <select
+                            value={doc.type}
+                            onChange={(e) => handleDocumentTypeChange(doc.id, e.target.value)}
+                            className="w-full p-2 border rounded-lg dark:bg-gray-800 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
+                            aria-label="文件類型"
+                          >
+                            {documentTypes.map(type => (
+                              <option key={type.value} value={type.value}>
+                                {type.label}
+                              </option>
+                            ))}
+                          </select>
+
+                          {/* 當選擇「其他」時顯示自訂輸入框 */}
+                          {doc.type === 'other' && (
+                            <input
+                              type="text"
+                              value={doc.customType || ''}
+                              onChange={(e) => handleCustomTypeChange(doc.id, e.target.value)}
+                              placeholder="請輸入文件名稱"
+                              className="w-full p-2 mt-2 border rounded-lg dark:bg-gray-800 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-primary"
+                            />
+                          )}
+                        </div>
+
+                        {/* 檔案上傳/拍照區域 */}
+                        {!doc.file ? (
+                          <CameraCapture
+                            label={
+                              doc.type === 'other' && doc.customType
+                                ? doc.customType
+                                : documentTypes.find(t => t.value === doc.type)?.label || '文件'
+                            }
+                            onCapture={(file) => handleFileCapture(doc.id, file)}
+                            currentImage={null}
+                          />
+                        ) : (
+                          <div className="relative">
+                            <img
+                              src={doc.preview || ''}
+                              alt="Document preview"
+                              className="w-full h-48 object-contain rounded-lg bg-gray-100 dark:bg-gray-800"
+                            />
+                            <Button
+                              size="sm"
+                              variant="flat"
+                              onClick={() => {
+                                setUploadedDocuments(prev =>
+                                  prev.map(d => d.id === doc.id ? {
+                                    ...d,
+                                    file: null,
+                                    preview: null
+                                  } : d)
+                                )
+                              }}
+                              className="absolute bottom-2 right-2"
+                            >
+                              重新上傳
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </CardBody>
+                  </Card>
+                ))}
+
+                {/* 新增文件按鈕 */}
+                <div className="flex justify-center py-4">
+                  <Button
+                    size="lg"
+                    variant="bordered"
+                    onClick={handleAddDocument}
+                    startContent={
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" />
+                      </svg>
+                    }
+                    className="w-full md:w-auto px-8"
+                  >
+                    新增文件上傳
+                  </Button>
+                </div>
+
+                {/* 提示文字 */}
+                {uploadedDocuments.length === 0 && (
+                  <div className="text-center py-8 text-default-500">
+                    <p className="text-lg mb-2">目前沒有上傳任何文件</p>
+                    <p className="text-sm">點擊上方按鈕新增文件，或直接點擊「完成」跳過此步驟</p>
+                  </div>
+                )}
+              </CardBody>
+            </Card>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="bg-background border-t border-divider p-6">
+          <div className="flex justify-between items-center max-w-6xl mx-auto">
+            <Button
+              variant="ghost"
+              onClick={() => setCurrentStep('application-form')}
+              className="px-6 py-3"
+            >
+              上一步
+            </Button>
+            <Button
+              color="success"
+              size="lg"
+              onClick={async () => {
+                // 上傳附加檔案（如果有）
+                const validDocuments = uploadedDocuments.filter(doc => doc.file !== null)
+
+                if (validDocuments.length > 0) {
+                  // TODO: 上傳附加檔案到 Supabase Storage
+                  console.log('上傳附加檔案:', validDocuments)
+                }
+
+                // 提交申請
+                await handleFinalSubmit()
+              }}
+              isLoading={isSubmitting}
+              className="px-8 py-3"
+            >
+              {isSubmitting ? '提交中...' : '完成申請'}
             </Button>
           </div>
         </div>

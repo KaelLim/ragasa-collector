@@ -212,6 +212,7 @@ export default function ApplicationsPage() {
               <Select
                 size="sm"
                 className="w-20"
+                aria-label={i18n.language === 'zh-TW' ? '每頁顯示項目數' : 'Items per page'}
                 selectedKeys={[itemsPerPage.toString()]}
                 onSelectionChange={(keys) => {
                   const value = Array.from(keys)[0] as string

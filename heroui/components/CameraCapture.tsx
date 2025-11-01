@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Button } from '@heroui/button'
 import { Card, CardBody } from '@heroui/card'
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@heroui/modal'
 import { useTranslation } from 'react-i18next'
+import ImageEditor from './ImageEditor'
+import EXIF from 'exif-js'
 
 interface CameraCaptureProps {
   onCapture: (file: File) => void
@@ -24,8 +26,13 @@ export default function CameraCapture({
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [capturedImage, setCapturedImage] = useState<string | null>(currentImage ?? null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isEditorOpen, setIsEditorOpen] = useState(false)
+  const [tempFile, setTempFile] = useState<File | null>(null)
+  const [tempImageUrl, setTempImageUrl] = useState<string | null>(null)
+  const [exifInfo, setExifInfo] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const startCamera = useCallback(async () => {
     setIsLoading(true)
@@ -79,13 +86,15 @@ export default function CameraCapture({
         const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' })
         const imageUrl = URL.createObjectURL(blob)
 
-        setCapturedImage(imageUrl)
-        onCapture(file)
+        // 開啟編輯器
+        setTempFile(file)
+        setTempImageUrl(imageUrl)
         stopCamera()
         setIsOpen(false)
+        setIsEditorOpen(true)
       }
     }, 'image/jpeg', 0.8)
-  }, [onCapture, stopCamera])
+  }, [stopCamera])
 
   const handleOpenCamera = () => {
     setIsOpen(true)
@@ -102,6 +111,58 @@ export default function CameraCapture({
     handleOpenCamera()
   }
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file && file.type.startsWith('image/')) {
+      const imageUrl = URL.createObjectURL(file)
+
+      // 讀取 EXIF 資訊
+      EXIF.getData(file as any, function(this: any) {
+        const orientation = EXIF.getTag(this, 'Orientation')
+        const make = EXIF.getTag(this, 'Make')
+        const model = EXIF.getTag(this, 'Model')
+        const dateTime = EXIF.getTag(this, 'DateTime')
+
+        // 構建 EXIF 資訊字串
+        const exifData = []
+        if (orientation) exifData.push(`方向: ${orientation}`)
+        if (make) exifData.push(`相機廠商: ${make}`)
+        if (model) exifData.push(`相機型號: ${model}`)
+        if (dateTime) exifData.push(`拍攝時間: ${dateTime}`)
+
+        const exifStr = exifData.length > 0 ? exifData.join(', ') : null
+        setExifInfo(exifStr)
+
+        console.log('EXIF 資訊:', {
+          orientation,
+          make,
+          model,
+          dateTime,
+          allData: EXIF.getAllTags(this)
+        })
+      })
+
+      // 開啟編輯器
+      setTempFile(file)
+      setTempImageUrl(imageUrl)
+      setIsEditorOpen(true)
+    }
+  }
+
+  const handleImageSave = (editedFile: File) => {
+    const imageUrl = URL.createObjectURL(editedFile)
+    setCapturedImage(imageUrl)
+    onCapture(editedFile)
+    setIsEditorOpen(false)
+    setTempFile(null)
+    setTempImageUrl(null)
+    // EXIF 資訊會保留，因為已經處理過方向校正
+  }
+
+  const triggerFileUpload = () => {
+    fileInputRef.current?.click()
+  }
+
   return (
     <div className="space-y-3">
 
@@ -113,6 +174,11 @@ export default function CameraCapture({
               alt={label}
               className="w-full aspect-video object-cover rounded-lg mb-3"
             />
+            {exifInfo && (
+              <div className="text-xs text-gray-500 mb-2">
+                {exifInfo}
+              </div>
+            )}
             <div className="flex gap-2">
               <Button
                 variant="bordered"
@@ -132,18 +198,31 @@ export default function CameraCapture({
           </CardBody>
         </Card>
       ) : (
-        <Button
-          color="primary"
-          variant="bordered"
-          onClick={handleOpenCamera}
-          className="w-full aspect-video flex flex-col gap-2 h-auto min-h-[120px]"
-        >
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 15.5c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm0-5c1.103 0 2 .897 2 2s-.897 2-2 2-2-.897-2-2 .897-2 2-2z"/>
-            <path d="M20 4h-3.17l-1.24-1.35c-.37-.41-.91-.65-1.47-.65H9.88c-.56 0-1.1.24-1.47.65L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h4.05l1.83-2h4.24l1.83 2H20v12z"/>
-          </svg>
-{t('application.tapToCapture')}
-        </Button>
+        <div className="flex gap-2 w-full">
+          <Button
+            color="primary"
+            variant="bordered"
+            onClick={handleOpenCamera}
+            className="flex-1 aspect-video flex flex-col gap-2 h-auto min-h-[120px]"
+          >
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 15.5c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm0-5c1.103 0 2 .897 2 2s-.897 2-2 2-2-.897-2-2 .897-2 2-2z"/>
+              <path d="M20 4h-3.17l-1.24-1.35c-.37-.41-.91-.65-1.47-.65H9.88c-.56 0-1.1.24-1.47.65L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h4.05l1.83-2h4.24l1.83 2H20v12z"/>
+            </svg>
+            {i18n.language === 'zh-TW' ? '拍照' : 'Camera'}
+          </Button>
+          <Button
+            color="primary"
+            variant="bordered"
+            onClick={triggerFileUpload}
+            className="flex-1 aspect-video flex flex-col gap-2 h-auto min-h-[120px]"
+          >
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+            </svg>
+            {i18n.language === 'zh-TW' ? '上傳圖片' : 'Upload'}
+          </Button>
+        </div>
       )}
 
       <Modal
@@ -187,6 +266,26 @@ export default function CameraCapture({
           </ModalFooter>
         </ModalContent>
       </Modal>
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileSelect}
+        className="hidden"
+        aria-label="Upload image file"
+      />
+
+      {/* 圖片編輯器 */}
+      <ImageEditor
+        isOpen={isEditorOpen}
+        onClose={() => setIsEditorOpen(false)}
+        imageFile={tempFile}
+        imageUrl={tempImageUrl}
+        onSave={handleImageSave}
+        label={label}
+      />
     </div>
   )
 }
