@@ -6,6 +6,7 @@
 
 ## 📋 快速索引
 
+- [AI MCP 團隊通訊系統部署](#ai-mcp-團隊通訊系統部署)
 - [技術棧概覽](#技術棧概覽)
 - [專案結構](#專案結構)
 - [核心業務流程](#核心業務流程)
@@ -13,6 +14,374 @@
 - [開發注意事項](#開發注意事項)
 - [已知問題與限制](#已知問題與限制)
 - [常見開發任務](#常見開發任務)
+
+---
+
+## 🤖 AI MCP 團隊通訊系統部署
+
+### 概述
+
+AI MCP (Model Context Protocol) 團隊通訊系統允許不同 AI 團隊成員之間進行結構化通訊協作。本系統使用 Supabase 作為訊息儲存後端。
+
+### 系統架構
+
+**團隊成員角色**:
+- `frontend` - 前端開發團隊
+- `backend` - 後端開發團隊
+- `deployment` - 部署團隊
+- `leader` - 專案領導
+- `testing` - 測試團隊
+- `customer-service` - 客服團隊
+- `architecture` - 架構團隊
+
+**訊息類型**:
+- `question` - 問題詢問
+- `answer` - 問題回答
+- `information` - 資訊分享
+- `urgent` - 緊急通知
+- `meeting_note` - 會議紀錄
+- `decision` - 決策記錄
+
+### 部署步驟
+
+#### 步驟 1: 建立 Supabase 資料表
+
+在 Supabase SQL Editor 執行以下 SQL：
+
+```sql
+-- 建立 AI 訊息表
+CREATE TABLE IF NOT EXISTS public.ai_messages (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  thread_id UUID NOT NULL,
+  parent_id UUID,
+  from_team TEXT NOT NULL CHECK (from_team IN ('frontend', 'backend', 'deployment', 'leader', 'testing', 'customer-service', 'architecture')),
+  to_team TEXT NOT NULL CHECK (to_team IN ('frontend', 'backend', 'deployment', 'leader', 'testing', 'customer-service', 'architecture')),
+  subject TEXT NOT NULL,
+  content TEXT NOT NULL,
+  message_type TEXT DEFAULT 'information' CHECK (message_type IN ('question', 'answer', 'information', 'urgent', 'meeting_note', 'decision')),
+  priority TEXT DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
+  status TEXT DEFAULT 'unread' CHECK (status IN ('unread', 'read', 'resolved')),
+  tags TEXT[],
+  file_references TEXT[],
+  code_references TEXT[],
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  read_at TIMESTAMPTZ,
+  resolved_at TIMESTAMPTZ
+);
+
+-- 建立索引優化查詢
+CREATE INDEX idx_ai_messages_thread_id ON public.ai_messages(thread_id);
+CREATE INDEX idx_ai_messages_to_team ON public.ai_messages(to_team);
+CREATE INDEX idx_ai_messages_status ON public.ai_messages(status);
+CREATE INDEX idx_ai_messages_created_at ON public.ai_messages(created_at DESC);
+
+-- 啟用 RLS (Row Level Security)
+ALTER TABLE public.ai_messages ENABLE ROW LEVEL SECURITY;
+
+-- 建立 RLS 政策 (允許所有認證用戶讀寫)
+CREATE POLICY "Enable read access for authenticated users" ON public.ai_messages
+  FOR SELECT USING (auth.role() = 'authenticated' OR auth.role() = 'anon');
+
+CREATE POLICY "Enable insert access for authenticated users" ON public.ai_messages
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated' OR auth.role() = 'anon');
+
+CREATE POLICY "Enable update access for authenticated users" ON public.ai_messages
+  FOR UPDATE USING (auth.role() = 'authenticated' OR auth.role() = 'anon');
+
+-- 建立函數：自動生成 thread_id
+CREATE OR REPLACE FUNCTION generate_thread_id()
+RETURNS UUID AS $$
+BEGIN
+  RETURN gen_random_uuid();
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON TABLE public.ai_messages IS 'AI 團隊通訊訊息表';
+COMMENT ON COLUMN public.ai_messages.thread_id IS '對話串 ID，用於追蹤相關訊息';
+COMMENT ON COLUMN public.ai_messages.parent_id IS '父訊息 ID，用於回覆串接';
+COMMENT ON COLUMN public.ai_messages.from_team IS '發送團隊';
+COMMENT ON COLUMN public.ai_messages.to_team IS '接收團隊';
+COMMENT ON COLUMN public.ai_messages.priority IS '訊息優先級';
+COMMENT ON COLUMN public.ai_messages.status IS '訊息狀態：未讀/已讀/已解決';
+```
+
+#### 步驟 2: 配置環境變數
+
+建立或更新 `.env.local` 檔案（專案根目錄）：
+
+```bash
+# Supabase 配置
+NEXT_PUBLIC_SUPABASE_URL=你的_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY=你的_SUPABASE_ANON_KEY
+
+# 或使用 Service Role Key (用於 MCP Server)
+SUPABASE_SERVICE_ROLE_KEY=你的_SERVICE_ROLE_KEY
+```
+
+#### 步驟 3: 建立 MCP Server 配置
+
+建立 `.mcp.json` 檔案（專案根目錄）：
+
+```json
+{
+  "mcpServers": {
+    "ai-communication": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-supabase"],
+      "env": {
+        "SUPABASE_URL": "${NEXT_PUBLIC_SUPABASE_URL}",
+        "SUPABASE_SERVICE_ROLE_KEY": "${SUPABASE_SERVICE_ROLE_KEY}"
+      }
+    }
+  }
+}
+```
+
+**注意**: 如果使用自訂 MCP Server，請替換 command 和 args。
+
+#### 步驟 4: 安裝相依套件（可選）
+
+如果專案需要直接調用 AI Communication API：
+
+```bash
+npm install @supabase/supabase-js
+```
+
+#### 步驟 5: 建立通訊工具函數
+
+建立 `lib/ai-communication.ts`：
+
+```typescript
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+export type TeamRole = 'frontend' | 'backend' | 'deployment' | 'leader' | 'testing' | 'customer-service' | 'architecture';
+export type MessageType = 'question' | 'answer' | 'information' | 'urgent' | 'meeting_note' | 'decision';
+export type Priority = 'low' | 'normal' | 'high' | 'urgent';
+
+interface SendMessageParams {
+  from_team: TeamRole;
+  to_team: TeamRole;
+  subject: string;
+  content: string;
+  message_type?: MessageType;
+  priority?: Priority;
+  tags?: string[];
+  file_references?: string[];
+  code_references?: string[];
+  parent_id?: string;
+}
+
+export async function sendMessage(params: SendMessageParams) {
+  const thread_id = params.parent_id
+    ? (await supabase.from('ai_messages').select('thread_id').eq('id', params.parent_id).single()).data?.thread_id
+    : crypto.randomUUID();
+
+  const { data, error } = await supabase
+    .from('ai_messages')
+    .insert({
+      thread_id,
+      ...params,
+      message_type: params.message_type || 'information',
+      priority: params.priority || 'normal'
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function checkInbox(team: TeamRole, includeRead = false) {
+  let query = supabase
+    .from('ai_messages')
+    .select('*')
+    .eq('to_team', team)
+    .order('created_at', { ascending: false });
+
+  if (!includeRead) {
+    query = query.eq('status', 'unread');
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data;
+}
+
+export async function markAsRead(messageId: string) {
+  const { error } = await supabase
+    .from('ai_messages')
+    .update({ status: 'read', read_at: new Date().toISOString() })
+    .eq('id', messageId);
+
+  if (error) throw error;
+}
+
+export async function viewThread(threadId: string) {
+  const { data, error } = await supabase
+    .from('ai_messages')
+    .select('*')
+    .eq('thread_id', threadId)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return data;
+}
+```
+
+### 使用範例
+
+#### 發送訊息
+
+```typescript
+import { sendMessage } from '@/lib/ai-communication';
+
+await sendMessage({
+  from_team: 'backend',
+  to_team: 'frontend',
+  subject: 'API 端點更新通知',
+  content: '已新增 /api/users/profile 端點，請更新前端調用邏輯',
+  message_type: 'information',
+  priority: 'high',
+  tags: ['api', 'update'],
+  code_references: ['app/api/users/profile/route.ts']
+});
+```
+
+#### 檢查收件匣
+
+```typescript
+import { checkInbox } from '@/lib/ai-communication';
+
+const messages = await checkInbox('frontend', false); // 只顯示未讀
+console.log(`收到 ${messages.length} 則未讀訊息`);
+```
+
+#### 查看對話串
+
+```typescript
+import { viewThread } from '@/lib/ai-communication';
+
+const thread = await viewThread('thread-uuid-here');
+thread.forEach(msg => {
+  console.log(`[${msg.from_team} → ${msg.to_team}] ${msg.subject}`);
+});
+```
+
+### MCP 工具使用
+
+在 Claude Code 中可直接使用以下 MCP 工具：
+
+```typescript
+// 發送訊息
+mcp__ai-communication__send_message({
+  from_team: "backend",
+  to_team: "leader",
+  subject: "部署完成報告",
+  content: "地端驗證版 v0.0.5 已成功部署",
+  message_type: "information",
+  priority: "normal"
+})
+
+// 檢查收件匣
+mcp__ai-communication__check_inbox({
+  team: "leader",
+  include_read: false
+})
+
+// 回覆訊息
+mcp__ai-communication__reply_to_message({
+  message_id: "訊息ID",
+  content: "收到，謝謝通知",
+  from_team: "leader"
+})
+
+// 查看對話串
+mcp__ai-communication__view_thread({
+  thread_id: "對話串ID"
+})
+
+// 標記已讀
+mcp__ai-communication__mark_as_read({
+  message_id: "訊息ID"
+})
+
+// 標記已解決
+mcp__ai-communication__mark_as_resolved({
+  message_id: "訊息ID"
+})
+```
+
+### 故障排除
+
+#### 問題 1: 資料表不存在
+**錯誤**: `Could not find the table 'public.ai_messages' in the schema cache`
+
+**解決方案**:
+1. 確認已在 Supabase SQL Editor 執行建表 SQL
+2. 檢查 Supabase Dashboard → Table Editor 是否看到 `ai_messages` 表
+3. 重新整理 Supabase schema cache
+
+#### 問題 2: RLS 政策阻擋
+**錯誤**: `new row violates row-level security policy`
+
+**解決方案**:
+1. 確認已執行 RLS 政策 SQL
+2. 檢查使用的 API Key (建議使用 Service Role Key)
+3. 暫時停用 RLS 進行測試：`ALTER TABLE public.ai_messages DISABLE ROW LEVEL SECURITY;`
+
+#### 問題 3: MCP Server 無法連接
+**錯誤**: MCP 工具無法使用
+
+**解決方案**:
+1. 檢查 `.mcp.json` 配置是否正確
+2. 確認環境變數已設定
+3. 重啟 Claude Code
+4. 使用 `claude mcp list` 檢查 MCP Server 狀態
+
+### 安全性建議
+
+1. **永遠使用環境變數**: 不要將 Supabase Keys 硬編碼在程式碼中
+2. **啟用 RLS**: 確保 Row Level Security 已啟用
+3. **最小權限原則**: 前端使用 Anon Key，MCP Server 使用 Service Role Key
+4. **審計日誌**: 定期檢查 `ai_messages` 表的訊息記錄
+5. **敏感資料加密**: 如需傳輸敏感資料，考慮加密 `content` 欄位
+
+### 進階功能
+
+#### 訊息搜尋
+
+```sql
+-- 搜尋包含特定關鍵字的訊息
+SELECT * FROM ai_messages
+WHERE content ILIKE '%關鍵字%'
+ORDER BY created_at DESC;
+
+-- 搜尋特定標籤的訊息
+SELECT * FROM ai_messages
+WHERE 'api' = ANY(tags)
+ORDER BY created_at DESC;
+```
+
+#### 統計分析
+
+```sql
+-- 各團隊訊息統計
+SELECT from_team, to_team, COUNT(*) as message_count
+FROM ai_messages
+GROUP BY from_team, to_team
+ORDER BY message_count DESC;
+
+-- 未讀訊息統計
+SELECT to_team, COUNT(*) as unread_count
+FROM ai_messages
+WHERE status = 'unread'
+GROUP BY to_team;
+```
 
 ---
 
