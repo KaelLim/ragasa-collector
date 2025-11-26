@@ -1,0 +1,101 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "修復檔案 UTF-8 編碼問題",
+        "description": "修復 imageAnalysisService.ts 和 useRealtimeImageAnalyses.ts 檔案中的中文註解亂碼問題",
+        "details": "使用 UTF-8 編碼重新儲存檔案，或重新輸入中文註解，確保所有中文註解正確顯示。",
+        "testStrategy": "手動檢查檔案內容，確認所有中文註解顯示正常，無亂碼。",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 2,
+        "title": "更新型別定義",
+        "description": "根據後端 Schema 更新 database.types.ts 型別定義",
+        "details": "對照 docs/DATABASE_SCHEMA.md 更新 ImageAnalysis、ImageAnalysisInsert、ImageAnalysisUpdate 型別，必要時新增 ProcessingQueue 型別，確保 TypeScript 編譯無錯誤且與後端一致。",
+        "testStrategy": "執行 TypeScript 編譯，確認無錯誤，並比對後端 Schema。",
+        "priority": "medium",
+        "dependencies": [
+          1
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 3,
+        "title": "更新 imageAnalysisService 模組",
+        "description": "更新 imageAnalysisService.ts 服務模組",
+        "details": "確認 uploadAndProcessImage() 函數寫入欄位正確，Storage bucket 名稱為 'disaster-images'，加入超時處理（60 秒）、錯誤處理、圖片壓縮與縮圖生成（200x200 px）邏輯。",
+        "testStrategy": "測試圖片上傳功能，確認可成功上傳到 Supabase Storage 並寫入 image_analyses 表。",
+        "priority": "medium",
+        "dependencies": [
+          1
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 4,
+        "title": "更新 useRealtimeImageAnalyses 模組",
+        "description": "更新 useRealtimeImageAnalyses.ts 模組",
+        "details": "確認 Realtime 訂閱邏輯符合後端規格，加入超時處理（60 秒）、Promise 封裝（async/await），確認 subscribeToProcessingStatus 函數正確性。",
+        "testStrategy": "測試 Realtime 訂閱功能，確認狀態變化即時反映。",
+        "priority": "medium",
+        "dependencies": [
+          1
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 5,
+        "title": "整合 EXIF 解析到 CameraCapture",
+        "description": "在 CameraCapture 組件中整合 EXIF 解析功能",
+        "details": "導入 parseExif 函數，修改 CameraCaptureProps 介面，於 handleCapture 中解析 EXIF 資料並傳遞給 onCapture 回調。",
+        "testStrategy": "拍照後檢查是否成功解析 EXIF 資料（datetime, gps, camera）。",
+        "priority": "medium",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 6,
+        "title": "整合圖片上傳服務到 handleFinalSubmit",
+        "description": "在 handleFinalSubmit 函數中整合圖片上傳與 Realtime 訂閱",
+        "details": "導入 uploadAndProcessImage 和 subscribeToProcessingStatus，於 handleFinalSubmit 中上傳照片、訂閱處理狀態、等待處理完成（60 秒超時），再繼續原有邏輯。",
+        "testStrategy": "測試完整申請流程，確認可成功上傳照片、觸發 AI 分析、接收 Realtime 更新。",
+        "priority": "medium",
+        "dependencies": [
+          5
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 7,
+        "title": "加入 Realtime 狀態顯示 UI",
+        "description": "在申請表單子步驟 2 加入 Realtime 狀態顯示 UI",
+        "details": "新增上傳進度條、處理狀態標籤（上傳中、等待處理、AI 分析中、分析完成、分析失敗）、分析結果預覽（caption, tags）等 UI 元素。",
+        "testStrategy": "測試狀態顯示功能，確認狀態即時更新，用戶可清楚了解處理進度。",
+        "priority": "medium",
+        "dependencies": [
+          6
+        ],
+        "status": "pending",
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "created": "2025-11-26T00:43:31.438Z",
+      "updated": "2025-11-26T02:03:32.467Z",
+      "description": "Tasks for master context"
+    }
+  }
+}

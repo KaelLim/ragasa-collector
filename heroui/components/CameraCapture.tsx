@@ -5,9 +5,10 @@ import { Button } from '@heroui/button'
 import { Card, CardBody } from '@heroui/card'
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@heroui/modal'
 import { useTranslation } from 'react-i18next'
+import { parseExif, type ExifData } from '@/lib/exifParser'
 
 interface CameraCaptureProps {
-  onCapture: (file: File) => void
+  onCapture: (file: File, exifData?: ExifData) => void
   label: string
   isRequired?: boolean
   currentImage?: string | null
@@ -80,12 +81,41 @@ export default function CameraCapture({
         const imageUrl = URL.createObjectURL(blob)
 
         setCapturedImage(imageUrl)
-        onCapture(file)
+        // 相機拍照產生的圖片沒有 EXIF（Canvas 創建的新圖片）
+        onCapture(file, undefined)
         stopCamera()
         setIsOpen(false)
       }
     }, 'image/jpeg', 0.8)
   }, [onCapture, stopCamera])
+
+  // 處理檔案選擇（從相簿選取）
+  const handleFileSelect = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      // 解析 EXIF 資料
+      const exifData = await parseExif(file)
+      console.log('解析到的 EXIF 資料:', exifData)
+
+      // 建立預覽 URL
+      const imageUrl = URL.createObjectURL(file)
+      setCapturedImage(imageUrl)
+
+      // 傳遞 File 和 EXIF 資料
+      onCapture(file, exifData)
+    } catch (error) {
+      console.error('EXIF 解析失敗:', error)
+      // EXIF 解析失敗不影響上傳，傳遞 undefined
+      const imageUrl = URL.createObjectURL(file)
+      setCapturedImage(imageUrl)
+      onCapture(file, undefined)
+    }
+
+    // 清空 input 以便重複選擇相同檔案
+    event.target.value = ''
+  }, [onCapture])
 
   const handleOpenCamera = () => {
     setIsOpen(true)
@@ -102,8 +132,22 @@ export default function CameraCapture({
     handleOpenCamera()
   }
 
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleChooseFile = () => {
+    fileInputRef.current?.click()
+  }
+
   return (
     <div className="space-y-3">
+      {/* 隱藏的檔案選擇 input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
 
       {capturedImage ? (
         <Card>
@@ -119,31 +163,45 @@ export default function CameraCapture({
                 onClick={retakePhoto}
                 className="flex-1"
               >
-{i18n.language === 'zh-TW' ? '重新拍攝' : 'Retake'}
+                {i18n.language === 'zh-TW' ? '重新拍攝' : 'Retake'}
               </Button>
               <Button
                 color="success"
                 className="flex-1"
                 disabled
               >
-{i18n.language === 'zh-TW' ? '已完成' : 'Completed'} ✓
+                {i18n.language === 'zh-TW' ? '已完成' : 'Completed'} ✓
               </Button>
             </div>
           </CardBody>
         </Card>
       ) : (
-        <Button
-          color="primary"
-          variant="bordered"
-          onClick={handleOpenCamera}
-          className="w-full aspect-video flex flex-col gap-2 h-auto min-h-[120px]"
-        >
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 15.5c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm0-5c1.103 0 2 .897 2 2s-.897 2-2 2-2-.897-2-2 .897-2 2-2z"/>
-            <path d="M20 4h-3.17l-1.24-1.35c-.37-.41-.91-.65-1.47-.65H9.88c-.56 0-1.1.24-1.47.65L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h4.05l1.83-2h4.24l1.83 2H20v12z"/>
-          </svg>
-{t('application.tapToCapture')}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            color="primary"
+            variant="bordered"
+            onClick={handleOpenCamera}
+            className="flex-1 aspect-video flex flex-col gap-2 h-auto min-h-[120px]"
+          >
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 15.5c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm0-5c1.103 0 2 .897 2 2s-.897 2-2 2-2-.897-2-2 .897-2 2-2z"/>
+              <path d="M20 4h-3.17l-1.24-1.35c-.37-.41-.91-.65-1.47-.65H9.88c-.56 0-1.1.24-1.47.65L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h4.05l1.83-2h4.24l1.83 2H20v12z"/>
+            </svg>
+            {t('application.tapToCapture')}
+          </Button>
+          <Button
+            color="secondary"
+            variant="bordered"
+            onClick={handleChooseFile}
+            className="flex-1 aspect-video flex flex-col gap-2 h-auto min-h-[120px]"
+          >
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM5 8V6h14v2H5z"/>
+              <path d="M12 13l-4 4h8z"/>
+            </svg>
+            {i18n.language === 'zh-TW' ? '從相簿選擇' : 'Choose from Gallery'}
+          </Button>
+        </div>
       )}
 
       <Modal

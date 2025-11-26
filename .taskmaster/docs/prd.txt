@@ -1,0 +1,310 @@
+# 產品需求文件 (PRD)
+# 慈濟災害個人資料收集系統 - 前端整合後端 AI 圖片分析服務
+
+## 專案概述
+
+**專案名稱**：慈濟災害個人資料收集系統 v0.0.5（地端驗證版）
+**專案目標**：將後端 AI 圖片分析服務整合到現有前端 UI/UX 中
+**目標用戶**：災區工作人員（一般用戶）
+**專案期程**：5.5 天
+
+## 背景
+
+本專案已有完整的申請表單 UI/UX（Next.js + React + HeroUI），包含：
+- 步驟 1: 慰問信
+- 步驟 2: 授權同意書
+- 步驟 3: 申請表單（4 個子步驟：基本資料 → 證件照片 → 電子簽名 → 確認送出）
+- 步驟 4: 完成頁面
+
+後端團隊已完成 Supabase Self-hosted AI 處理服務架構，包含：
+- image_analyses 資料表（含 EXIF、AI 分析結果、向量 embedding）
+- disaster-images Storage bucket
+- process-image Edge Function（OpenAI Vision API）
+- Database Trigger（自動觸發處理佇列）
+- Realtime 即時推送
+
+前端現有服務模組存在問題：
+- imageAnalysisService.ts 和 useRealtimeImageAnalyses.ts 有 UTF-8 編碼問題
+- 型別定義需對照後端 Database Schema 更新
+- 需整合 EXIF 解析到 CameraCapture 組件
+- 需整合圖片上傳服務到 handleFinalSubmit 函數
+- 需加入 Realtime 狀態顯示 UI
+
+## 核心功能需求
+
+### 1. 修復現有模組問題（P0）
+
+#### 1.1 修復 UTF-8 編碼問題
+- **檔案**：heroui/services/imageAnalysisService.ts
+- **問題**：中文註解顯示為亂碼（如 �\u0016G\n�\u0007U\u0006P�）
+- **解決方案**：使用 UTF-8 編碼重新儲存檔案或重新輸入中文註解
+- **驗收標準**：所有中文註解正確顯示
+
+#### 1.2 修復 useRealtimeImageAnalyses.ts 編碼問題
+- **檔案**：heroui/hooks/useRealtimeImageAnalyses.ts
+- **問題**：同上 UTF-8 編碼問題
+- **解決方案**：同上
+- **驗收標準**：所有中文註解正確顯示
+
+### 2. 更新型別定義（P1）
+
+#### 2.1 對照後端 Schema 更新 database.types.ts
+- **檔案**：heroui/types/database.types.ts
+- **參考文件**：docs/DATABASE_SCHEMA.md
+- **更新內容**：
+  - 確認 ImageAnalysis 型別完整性（20+ 欄位）
+  - 確認 ImageAnalysisInsert 型別（前端寫入欄位）
+  - 確認 ImageAnalysisUpdate 型別（後端更新欄位）
+  - 新增 ProcessingQueue 型別（如需要）
+- **驗收標準**：TypeScript 編譯無錯誤，型別與後端 Schema 一致
+
+### 3. 更新服務模組（P2）
+
+#### 3.1 更新 imageAnalysisService.ts
+- **檔案**：heroui/services/imageAnalysisService.ts
+- **參考文件**：docs/SUPABASE_INTEGRATION.md
+- **更新內容**：
+  - 確認 uploadAndProcessImage() 函數寫入欄位正確
+  - 確認 Storage bucket 名稱為 'disaster-images'
+  - 加入超時處理機制（60 秒）
+  - 加入錯誤處理邏輯
+  - 確認壓縮圖片邏輯
+  - 確認縮圖生成邏輯（200x200 px）
+- **驗收標準**：可成功上傳圖片到 Supabase Storage，寫入 image_analyses 表
+
+#### 3.2 更新 useRealtimeImageAnalyses.ts
+- **檔案**：heroui/hooks/useRealtimeImageAnalyses.ts
+- **參考文件**：docs/REALTIME_SUBSCRIPTION_GUIDE.md
+- **更新內容**：
+  - 確認 Realtime 訂閱邏輯符合後端規格
+  - 加入超時處理機制（60 秒）
+  - 加入 Promise 封裝（async/await）
+  - 確認 subscribeToProcessingStatus 函數正確性
+- **驗收標準**：可正確訂閱 Realtime 更新，狀態變化即時反映
+
+### 4. 整合 EXIF 解析（P3）
+
+#### 4.1 在 CameraCapture 組件中整合 EXIF 解析
+- **檔案**：heroui/components/CameraCapture.tsx
+- **參考文件**：docs/EXIF_PARSING_GUIDE.md
+- **整合內容**：
+  ```typescript
+  import { parseExif } from '@/lib/exifParser'
+
+  interface CameraCaptureProps {
+    onCapture: (file: File, exifData?: ExifData) => void
+    // ...
+  }
+
+  const handleCapture = async (file: File) => {
+    const exifData = await parseExif(file)
+    onCapture(file, exifData)
+  }
+  ```
+- **驗收標準**：拍照後可成功解析 EXIF 資料（datetime, gps, camera）
+
+### 5. 整合圖片上傳服務（P4）
+
+#### 5.1 在 handleFinalSubmit 中整合圖片上傳
+- **檔案**：heroui/app/application/new/page.tsx
+- **整合位置**：handleFinalSubmit 函數（子步驟 4：確認送出）
+- **整合內容**：
+  ```typescript
+  import { uploadAndProcessImage } from '@/services/imageAnalysisService'
+  import { subscribeToProcessingStatus } from '@/hooks/useRealtimeImageAnalyses'
+
+  const handleFinalSubmit = async () => {
+    // 上傳身分證正面
+    const frontIdResult = await uploadAndProcessImage(
+      fileData.frontIdPhoto!,
+      '身分證正面照'
+    )
+
+    // 訂閱處理狀態
+    const unsubscribe = subscribeToProcessingStatus(
+      frontIdResult.analysisId,
+      (status, data) => {
+        if (status === 'completed') {
+          console.log('AI 分析完成:', data.caption, data.tags)
+        }
+      }
+    )
+
+    // 等待處理完成（60 秒超時）
+    await waitForCompletion(frontIdResult.analysisId, 60000)
+
+    // 上傳其他照片...
+    // 繼續原有邏輯...
+  }
+  ```
+- **驗收標準**：可成功上傳所有照片，觸發 AI 分析，接收 Realtime 更新
+
+### 6. 加入 Realtime 狀態顯示 UI（P5）
+
+#### 6.1 在子步驟 2 加入狀態顯示
+- **檔案**：heroui/app/application/new/page.tsx
+- **位置**：子步驟 2（證件照片）
+- **UI 元素**：
+  - 上傳進度條（0-100%）
+  - 處理狀態標籤：
+    - 上傳中...
+    - 等待處理...
+    - AI 分析中...
+    - 分析完成 ✓
+    - 分析失敗 ✗
+  - 分析結果預覽（caption, tags）
+- **驗收標準**：狀態即時更新，用戶可清楚了解處理進度
+
+### 7. 完整流程測試（P6）
+
+#### 7.1 端到端測試
+- **測試案例**：
+  1. 正常流程：拍照 → EXIF 解析 → 上傳 → AI 分析 → 結果顯示
+  2. 無 EXIF 流程：無 EXIF 圖片仍可正常上傳
+  3. AI 分析失敗：顯示錯誤訊息
+  4. 網路中斷：錯誤處理與重試機制
+  5. Realtime 超時：60 秒超時提示
+- **驗收標準**：所有測試案例通過，無 console 錯誤
+
+## 技術架構
+
+### 前端技術棧
+- Next.js 15.3.1 (App Router)
+- React 18.3.1 (Client Components)
+- TypeScript 5.6.3
+- HeroUI 2.8.4
+- Tailwind CSS 4.1.11
+
+### 後端技術棧
+- Supabase Self-hosted (Docker)
+- PostgreSQL + pgvector
+- Supabase Auth
+- Supabase Storage
+- Supabase Edge Functions
+- OpenAI Vision API
+
+### 整合架構
+```
+CameraCapture (EXIF 解析)
+  → app/application/new/page.tsx (handleFinalSubmit)
+    → imageAnalysisService (上傳 Storage + 寫入 DB)
+      → Supabase (Database Trigger)
+        → Edge Function (AI 分析)
+          → Realtime 推送
+            → useRealtimeImageAnalyses (狀態更新)
+              → UI 顯示結果
+```
+
+## 前後端職責劃分
+
+### 前端職責（寫入 image_analyses）
+- user_id, tenant_id
+- image_name, image_url, thumbnail_key
+- event_description
+- exif_datetime, exif_gps, exif_camera, exif_raw
+- status='pending'（觸發 Database Trigger）
+
+### 後端職責（Edge Function 更新）
+- caption, tags
+- caption_embedding, tags_embedding
+- status='completed' | 'failed'
+- error_message
+
+## 非功能需求
+
+### 效能需求
+- 圖片上傳：< 5 秒（10MB 檔案）
+- AI 分析：< 30 秒（一般情況）
+- Realtime 延遲：< 2 秒
+
+### 可靠性需求
+- 網路中斷：自動重試 3 次
+- AI 分析失敗：不阻塞申請流程，允許繼續
+- Realtime 超時：60 秒超時提示
+
+### 相容性需求
+- 支援圖片格式：JPG, PNG, HEIC, HEIF
+- 檔案大小限制：50MB
+- 瀏覽器支援：Chrome, Safari, Firefox 最新版
+
+## 風險與緩解措施
+
+| 風險 | 等級 | 緩解措施 |
+|:---|:---|:---|
+| 編碼問題未解決 | 🔴 高 | P0 優先處理，阻塞其他任務 |
+| 型別定義不一致 | 🟡 中 | P1 仔細對照後端 Schema |
+| Realtime 連線不穩 | 🟡 中 | 加入超時與重試機制 |
+| AI 分析失敗 | 🟢 低 | 允許繼續申請，事後人工審核 |
+| 檔案過大上傳失敗 | 🟢 低 | 前端壓縮 + 檔案大小驗證 |
+
+## 成功標準
+
+### 技術標準
+- [ ] 所有 TypeScript 編譯無錯誤
+- [ ] 所有中文註解正確顯示
+- [ ] 型別定義與後端 Schema 一致
+- [ ] 圖片可成功上傳到 Supabase Storage
+- [ ] AI 分析可正常觸發並完成
+- [ ] Realtime 狀態即時更新
+
+### 業務標準
+- [ ] 保留原有 UI/UX 完整性
+- [ ] 申請流程無中斷
+- [ ] 用戶可清楚了解處理進度
+- [ ] 錯誤訊息友善且明確
+
+### 用戶體驗標準
+- [ ] 拍照後立即看到 EXIF 資訊
+- [ ] 上傳進度可視化
+- [ ] AI 分析結果即時顯示
+- [ ] 失敗情況有明確提示
+
+## 參考文件
+
+### 後端技術文件（6 份）
+1. 會議紀錄_後端AI處理伺服器架構設計_20251126.md
+2. docs/BACKEND_API_SPECIFICATION.md
+3. docs/DATABASE_SCHEMA.md
+4. docs/SUPABASE_INTEGRATION.md
+5. docs/REALTIME_SUBSCRIPTION_GUIDE.md
+6. docs/EXIF_PARSING_GUIDE.md
+
+### 前端專案文件
+- CLAUDE.md（專案開發指引）
+- ARCHITECTURE.md（專案架構文件）
+- 會議紀錄_前端整合架構設計_20251126.md（本次會議紀錄）
+
+## 交付物
+
+### 程式碼
+- [ ] heroui/services/imageAnalysisService.ts（已修復 + 已更新）
+- [ ] heroui/hooks/useRealtimeImageAnalyses.ts（已修復 + 已更新）
+- [ ] heroui/types/database.types.ts（已更新）
+- [ ] heroui/components/CameraCapture.tsx（已整合 EXIF）
+- [ ] heroui/app/application/new/page.tsx（已整合上傳服務 + Realtime UI）
+
+### 文件
+- [ ] 整合測試報告
+- [ ] API 使用說明文件
+- [ ] 已知問題與限制清單
+
+## 時程規劃
+
+| 優先級 | 任務 | 預計工時 | 起始條件 |
+|:---|:---|:---|:---|
+| P0 | 修復檔案編碼問題 | 0.5 天 | 無 |
+| P1 | 對照後端文件更新型別定義 | 0.5 天 | P0 完成 |
+| P2 | 對照後端文件更新服務模組 | 1 天 | P0 完成 |
+| P3 | 整合 EXIF 解析到 CameraCapture | 0.5 天 | P1, P2 完成 |
+| P4 | 整合圖片上傳到 handleFinalSubmit | 1 天 | P3 完成 |
+| P5 | 加入 Realtime 狀態顯示 UI | 1 天 | P4 完成 |
+| P6 | 完整流程測試 | 1 天 | P5 完成 |
+
+**總預計工時**：5.5 天
+
+## 附註
+
+- 本 PRD 基於 2025-11-26 前端整合架構設計會議結論
+- Supabase 本地環境已運行（http://localhost:8000）
+- 後端 AI 處理服務已完成部署
+- 前後端職責已明確劃分
