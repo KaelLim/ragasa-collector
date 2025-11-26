@@ -16,6 +16,7 @@ import SignatureCanvas from '@/components/SignatureCanvas'
 import BankSelector from '@/components/BankSelector'
 import { supabase, type BankCode } from '@/lib/supabase'
 import { batchUploadImages } from '@/services/imageAnalysisService'
+import { parseExif } from '@/lib/exifParser'
 
 type FormStep = 'visit-record' | 'consent-form' | 'visit-data' | 'completed'
 
@@ -771,13 +772,58 @@ ${visitRecord.visitNotes}`.trim()
                 <CardBody className="space-y-6">
                   {/* 照片上傳區 */}
                   {photos.length < 20 && (
-                    <div>
+                    <div className="space-y-4">
+                      {/* 單張拍照/選擇 */}
                       <CameraCapture
                         label={`現場照片 ${photos.length + 1}`}
                         onCapture={(file, exifData) => {
                           setPhotos(prev => [...prev, { file, exifData }])
                         }}
                       />
+
+                      {/* 批次選擇多張照片 */}
+                      <div className="relative">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={async (e) => {
+                            const files = Array.from(e.target.files || [])
+                            const remainingSlots = 20 - photos.length
+                            const filesToAdd = files.slice(0, remainingSlots)
+
+                            console.log(`批次選擇：${files.length} 張，可加入：${filesToAdd.length} 張`)
+
+                            // 逐一解析 EXIF 並加入
+                            for (const file of filesToAdd) {
+                              try {
+                                const exifData = await parseExif(file)
+                                setPhotos(prev => [...prev, { file, exifData }])
+                              } catch (error) {
+                                console.error('EXIF 解析失敗:', error)
+                                setPhotos(prev => [...prev, { file, exifData: undefined }])
+                              }
+                            }
+
+                            // 清空 input
+                            e.target.value = ''
+                          }}
+                          className="hidden"
+                          id="batch-upload"
+                        />
+                        <label
+                          htmlFor="batch-upload"
+                          className="flex items-center justify-center gap-2 w-full p-4 border-2 border-dashed border-primary rounded-lg cursor-pointer hover:bg-primary-50 dark:hover:bg-primary-950/30 transition-colors"
+                        >
+                          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM5 8V6h14v2H5z"/>
+                            <path d="M12 13l-4 4h8z"/>
+                          </svg>
+                          <span className="font-medium text-primary">
+                            批次選擇多張照片（可選 {20 - photos.length} 張）
+                          </span>
+                        </label>
+                      </div>
                     </div>
                   )}
 
