@@ -250,7 +250,7 @@ ${visitRecord.visitNotes}`.trim()
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Progress value={33} size="sm" className="w-24" />
+              <Progress value={33} size="sm" className="w-24" aria-label="表單進度" />
               <ThemeSwitcher />
               <LanguageSwitcher />
               <Button variant="ghost" onClick={() => router.push('/dashboard')}>返回</Button>
@@ -280,7 +280,7 @@ ${visitRecord.visitNotes}`.trim()
                 <p className="text-sm text-default-500">{t('application.step1')}</p>
                 <span className="text-xs text-default-400">1/3</span>
               </div>
-              <Progress value={33} color="primary" size="sm" />
+              <Progress value={33} color="primary" size="sm" aria-label="表單進度" />
             </div>
           </div>
         </div>
@@ -398,7 +398,7 @@ ${visitRecord.visitNotes}`.trim()
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Progress value={66} size="sm" className="w-24" />
+              <Progress value={66} size="sm" className="w-24" aria-label="表單進度" />
               <ThemeSwitcher />
               <LanguageSwitcher />
               <Button variant="ghost" onClick={() => router.push('/dashboard')}>返回</Button>
@@ -429,7 +429,7 @@ ${visitRecord.visitNotes}`.trim()
                 <p className="text-sm text-default-500">個資授權同意書</p>
                 <span className="text-xs text-default-400">2/3</span>
               </div>
-              <Progress value={66} color="primary" size="sm" />
+              <Progress value={66} color="primary" size="sm" aria-label="表單進度" />
             </div>
           </div>
         </div>
@@ -558,7 +558,7 @@ ${visitRecord.visitNotes}`.trim()
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Progress value={66 + (currentSubStep / 4) * 34} size="sm" className="w-24" color="success" />
+              <Progress value={66 + (currentSubStep / 4) * 34} size="sm" className="w-24" color="success" aria-label="表單進度" />
               <ThemeSwitcher />
               <LanguageSwitcher />
               <Button variant="ghost" onClick={() => router.push('/dashboard')}>返回</Button>
@@ -589,7 +589,7 @@ ${visitRecord.visitNotes}`.trim()
                 <p className="text-sm text-default-500">{t(`application.subStep${currentSubStep}`)}</p>
                 <span className="text-xs text-default-400">{currentSubStep}/4</span>
               </div>
-              <Progress value={66 + (currentSubStep / 4) * 34} color="success" size="sm" />
+              <Progress value={66 + (currentSubStep / 4) * 34} color="success" size="sm" aria-label="表單進度" />
             </div>
           </div>
         </div>
@@ -920,6 +920,7 @@ ${visitRecord.visitNotes}`.trim()
                           value={(uploadProgress.current / uploadProgress.total) * 100}
                           color="primary"
                           size="lg"
+                          aria-label="照片上傳進度"
                         />
                         <p className="text-sm text-default-600">
                           {uploadProgress.status === 'uploading' && `正在上傳：${uploadProgress.fileName}`}
