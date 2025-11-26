@@ -15,6 +15,7 @@ import CameraCapture from '@/components/CameraCapture'
 import SignatureCanvas from '@/components/SignatureCanvas'
 import BankSelector from '@/components/BankSelector'
 import { supabase, type BankCode } from '@/lib/supabase'
+import { batchUploadImages } from '@/services/imageAnalysisService'
 
 type FormStep = 'visit-record' | 'consent-form' | 'visit-data' | 'completed'
 
@@ -68,6 +69,14 @@ export default function NewApplicationPage() {
   // 提交狀態
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
+
+  // 上傳進度（新增）
+  const [uploadProgress, setUploadProgress] = useState({
+    current: 0,
+    total: 0,
+    fileName: '',
+    status: ''
+  })
 
   const router = useRouter()
 
@@ -124,77 +133,66 @@ export default function NewApplicationPage() {
     return fileName
   }
 
-  // 提交完整申請
+  // 提交訪視紀錄（POC 版本：批次上傳照片）
   const handleFinalSubmit = async () => {
     setIsSubmitting(true)
     setSubmitError('')
 
     try {
-      // 1. 取得當前用戶
-      const { data: { user }, error: userError } = await supabase.auth.getUser()
-      if (userError || !user) {
-        throw new Error('用戶未登入')
+      // 1. 驗證必填資料
+      if (!visitRecord.eventName || !visitRecord.visitNotes) {
+        throw new Error('請填寫事件名稱和訪視紀錄')
       }
 
-      // 2. 插入基本資料到資料庫
-      const { data: applicationData, error: insertError } = await supabase
-        .from('disaster_applications')
-        .insert([{
-          user_id: user.id,
-          victim_name: formData.victim_name,
-          id_number: formData.id_number,
-          phone_number: formData.phone_number,
-          address: formData.address,
-          bank_code: formData.bank_code,
-          bank_account: formData.bank_account
-        }])
-        .select()
-        .single()
-
-      if (insertError) throw insertError
-
-      const newApplicationId = applicationData.id
-      setApplicationId(newApplicationId)
-
-      // 3. 上傳所有檔案
-      const uploads: Promise<string>[] = []
-      const updateData: any = {}
-
-      if (fileData.frontIdPhoto) {
-        uploads.push(uploadFileToStorage(fileData.frontIdPhoto, 'front_id', newApplicationId))
-        updateData.front_id_photo = `front_id/${newApplicationId}.jpg`
+      if (photos.length === 0) {
+        throw new Error('請至少上傳 1 張現場照片')
       }
 
-      if (fileData.backIdPhoto) {
-        uploads.push(uploadFileToStorage(fileData.backIdPhoto, 'back_id', newApplicationId))
-        updateData.back_id_photo = `back_id/${newApplicationId}.jpg`
+      // 2. 組合事件描述（包含訪視紀錄）
+      const eventDescription = `事件：${visitRecord.eventName}
+訪視時間：${visitRecord.visitDate} ${visitRecord.visitTime}
+訪視紀錄：
+${visitRecord.visitNotes}`.trim()
+
+      console.log('開始批次上傳照片...', {
+        照片數量: photos.length,
+        事件: visitRecord.eventName
+      })
+
+      // 3. 批次上傳照片（不等待 AI 處理）
+      const uploadResults = await batchUploadImages(
+        photos.map(p => p.file),
+        eventDescription,
+        (current, total, fileName, status) => {
+          // 更新上傳進度
+          setUploadProgress({ current, total, fileName, status })
+          console.log(`上傳進度：${current}/${total} - ${fileName} - ${status}`)
+        }
+      )
+
+      // 4. 檢查上傳結果
+      const successCount = uploadResults.filter(r => r.status === 'success').length
+      const failedCount = uploadResults.filter(r => r.status === 'failed').length
+
+      console.log(`上傳完成：成功 ${successCount} 張，失敗 ${failedCount} 張`)
+
+      if (successCount === 0) {
+        throw new Error('所有照片上傳失敗，請檢查網路連線')
       }
 
-      if (fileData.bankPhoto) {
-        uploads.push(uploadFileToStorage(fileData.bankPhoto, 'bank_account', newApplicationId))
-        updateData.bank_photo = `bank_account/${newApplicationId}.jpg`
-      }
+      // 5. 生成訪視紀錄 ID（臨時）
+      const visitId = `VISIT-${Date.now()}`
+      setApplicationId(visitId)
 
-      if (fileData.signature) {
-        uploads.push(uploadFileToStorage(fileData.signature, 'signature', newApplicationId))
-        updateData.signature = `signature/${newApplicationId}.png`
-      }
+      console.log('訪視紀錄提交完成', {
+        訪視ID: visitId,
+        成功上傳: successCount,
+        失敗: failedCount
+      })
 
-      // 4. 執行所有檔案上傳
-      if (uploads.length > 0) {
-        await Promise.all(uploads)
-
-        // 5. 更新資料庫記錄
-        const { error: updateError } = await supabase
-          .from('disaster_applications')
-          .update(updateData)
-          .eq('id', newApplicationId)
-
-        if (updateError) throw updateError
-      }
-
-      // 6. 完成
+      // 6. 立即完成提交流程（不等待 AI 處理）
       setCurrentStep('completed')
+
     } catch (error) {
       console.error('提交錯誤:', error)
       setSubmitError(error instanceof Error ? error.message : '提交失敗，請重試')
@@ -846,76 +844,81 @@ export default function NewApplicationPage() {
               <Card className="shadow-lg">
                 <CardHeader>
                   <h2 className="text-lg font-bold">確認提交</h2>
-                  <p className="text-sm text-default-500">請確認所有資料無誤後提交申請</p>
+                  <p className="text-sm text-default-500">請確認訪視紀錄無誤後提交</p>
                 </CardHeader>
                 <CardBody className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* 基本資料預覽 */}
-                    <Card className="bg-content2">
-                      <CardHeader>
-                        <h3 className="font-semibold">基本資料</h3>
-                      </CardHeader>
-                      <CardBody className="space-y-3">
-                        <div className="flex justify-between">
-                          <span className="text-default-500">姓名：</span>
-                          <span>{formData.victim_name || '未填寫'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-default-500">身分證：</span>
-                          <span>{formData.id_number || '未填寫'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-default-500">電話：</span>
-                          <span>{formData.phone_number || '未填寫'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-default-500">地址：</span>
-                          <span className="text-right text-xs">{formData.address || '未填寫'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-default-500">銀行：</span>
-                          <span className="text-xs">{formData.bank_code ? `${formData.bank_code} - ${formData.bank_name}` : '未填寫'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-default-500">帳號：</span>
-                          <span>{formData.bank_account || '未填寫'}</span>
-                        </div>
-                      </CardBody>
-                    </Card>
+                  {/* 訪視紀錄預覽 */}
+                  <Card className="bg-content2">
+                    <CardHeader>
+                      <h3 className="font-semibold">訪視紀錄</h3>
+                    </CardHeader>
+                    <CardBody className="space-y-3">
+                      <div className="flex justify-between">
+                        <span className="text-default-500">事件名稱：</span>
+                        <span className="font-medium">{visitRecord.eventName}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-default-500">訪視時間：</span>
+                        <span>{visitRecord.visitDate} {visitRecord.visitTime}</span>
+                      </div>
+                      <div className="border-t pt-3">
+                        <p className="text-default-500 text-sm mb-2">訪視紀錄：</p>
+                        <p className="text-sm whitespace-pre-wrap">{visitRecord.visitNotes}</p>
+                      </div>
+                    </CardBody>
+                  </Card>
 
-                    {/* 檔案預覽 */}
-                    <Card className="bg-content2">
-                      <CardHeader>
-                        <h3 className="font-semibold">上傳檔案</h3>
-                      </CardHeader>
+                  {/* 照片預覽 */}
+                  <Card className="bg-content2">
+                    <CardHeader>
+                      <h3 className="font-semibold">現場照片（{photos.length} 張）</h3>
+                    </CardHeader>
+                    <CardBody>
+                      <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+                        {photos.map((photo, index) => (
+                          <div key={index} className="relative">
+                            <img
+                              src={URL.createObjectURL(photo.file)}
+                              alt={`照片 ${index + 1}`}
+                              className="w-full aspect-square object-cover rounded"
+                            />
+                            <div className="absolute top-1 left-1 bg-black/70 text-white text-xs px-1 rounded">
+                              #{index + 1}
+                            </div>
+                            {photo.exifData?.gps && (
+                              <div className="absolute bottom-1 right-1 bg-green-500 text-white text-xs px-1 rounded">
+                                GPS
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </CardBody>
+                  </Card>
+
+                  {/* 上傳進度 */}
+                  {isSubmitting && uploadProgress.total > 0 && (
+                    <Card className="bg-primary-50 dark:bg-primary-950/30">
                       <CardBody className="space-y-3">
                         <div className="flex justify-between items-center">
-                          <span className="text-default-500">身分證正面：</span>
-                          <span className={fileData.frontIdPhoto ? 'text-success' : 'text-danger'}>
-                            {fileData.frontIdPhoto ? '✓ 已上傳' : '✗ 未上傳'}
+                          <span className="font-medium">上傳進度</span>
+                          <span className="text-sm">
+                            {uploadProgress.current} / {uploadProgress.total} 張
                           </span>
                         </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-default-500">身分證反面：</span>
-                          <span className={fileData.backIdPhoto ? 'text-success' : 'text-danger'}>
-                            {fileData.backIdPhoto ? '✓ 已上傳' : '✗ 未上傳'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-default-500">銀行證明：</span>
-                          <span className={fileData.bankPhoto ? 'text-success' : 'text-danger'}>
-                            {fileData.bankPhoto ? '✓ 已上傳' : '✗ 未上傳'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-default-500">電子簽名：</span>
-                          <span className={fileData.signature ? 'text-success' : 'text-danger'}>
-                            {fileData.signature ? '✓ 已完成' : '✗ 未完成'}
-                          </span>
-                        </div>
+                        <Progress
+                          value={(uploadProgress.current / uploadProgress.total) * 100}
+                          color="primary"
+                          size="lg"
+                        />
+                        <p className="text-sm text-default-600">
+                          {uploadProgress.status === 'uploading' && `正在上傳：${uploadProgress.fileName}`}
+                          {uploadProgress.status === 'completed' && `已完成：${uploadProgress.fileName}`}
+                          {uploadProgress.status === 'failed' && `失敗：${uploadProgress.fileName}`}
+                        </p>
                       </CardBody>
                     </Card>
-                  </div>
+                  )}
 
                   {submitError && (
                     <div className="bg-danger-50 p-4 rounded-lg border border-danger-200 text-center">
