@@ -62,26 +62,27 @@ export default function DashboardPage() {
     setDownloadError('')
 
     try {
-      // 獲取所有申請資料
+      // 獲取所有圖片分析資料（POC 版本）
       const { data, error } = await supabase
-        .from('disaster_applications')
+        .from('image_analyses')
         .select('*')
         .order('created_at', { ascending: false })
 
       if (error) throw error
 
-      // 準備下載資料
-      const downloadData = data.map(app => ({
-        'Application ID': app.id,
-        'Name': app.victim_name,
-        'ID Number': app.id_number,
-        'Phone': app.phone_number,
-        'Address': app.address,
-        'Bank Code': app.bank_code,
-        'Bank Account': app.bank_account,
-        'Status': app.status,
-        'Created At': new Date(app.created_at).toLocaleDateString(),
-        'Updated At': new Date(app.updated_at).toLocaleDateString()
+      // 準備下載資料（POC 版本：訪視紀錄）
+      const downloadData = data.map(analysis => ({
+        'Analysis ID': analysis.id,
+        'Image Name': analysis.image_name,
+        'Event Description': analysis.event_description || '',
+        'EXIF DateTime': analysis.exif_datetime || '',
+        'EXIF GPS': analysis.exif_gps ? `${analysis.exif_gps.lat}, ${analysis.exif_gps.lon}` : '',
+        'EXIF Camera': analysis.exif_camera || '',
+        'Caption': analysis.caption || '',
+        'Tags': analysis.tags ? JSON.stringify(analysis.tags) : '',
+        'Status': analysis.status,
+        'Created At': new Date(analysis.created_at).toLocaleDateString(),
+        'Processed At': analysis.processed_at ? new Date(analysis.processed_at).toLocaleDateString() : ''
       }))
 
       if (downloadFormat === 'csv') {
@@ -111,7 +112,7 @@ export default function DashboardPage() {
     const link = document.createElement('a')
     const url = URL.createObjectURL(blob)
     link.setAttribute('href', url)
-    link.setAttribute('download', `disaster_applications_${new Date().toISOString().split('T')[0]}.csv`)
+    link.setAttribute('download', `visit_records_${new Date().toISOString().split('T')[0]}.csv`)
     link.style.visibility = 'hidden'
     document.body.appendChild(link)
     link.click()
@@ -131,7 +132,7 @@ export default function DashboardPage() {
     const link = document.createElement('a')
     const url = URL.createObjectURL(blob)
     link.setAttribute('href', url)
-    link.setAttribute('download', `disaster_applications_${new Date().toISOString().split('T')[0]}.xlsx`)
+    link.setAttribute('download', `visit_records_${new Date().toISOString().split('T')[0]}.xlsx`)
     link.style.visibility = 'hidden'
     document.body.appendChild(link)
     link.click()
