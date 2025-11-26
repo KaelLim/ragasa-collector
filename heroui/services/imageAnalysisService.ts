@@ -63,14 +63,14 @@ export async function uploadAndProcessImage(
   eventDescription?: string
 ): Promise<UploadAndProcessResult> {
   try {
-    // 1. 取得當前使用者
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    // 1. 取得當前使用者（使用 getSession 更可靠）
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) {
       throw new Error('未登入，請先登入系統')
     }
 
-    const userId = user.id
-    const tenantId = user.user_metadata?.tenant_id || '00000000-0000-0000-0000-000000000000'
+    const userId = session.user.id
+    const tenantId = session.user.user_metadata?.tenant_id || '00000000-0000-0000-0000-000000000000'
 
     // 2. 解析 EXIF 資料
     const exifData = await parseExif(file)
