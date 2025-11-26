@@ -16,23 +16,31 @@ import SignatureCanvas from '@/components/SignatureCanvas'
 import BankSelector from '@/components/BankSelector'
 import { supabase, type BankCode } from '@/lib/supabase'
 
-type FormStep = 'comfort-letter' | 'consent-form' | 'application-form' | 'completed'
+type FormStep = 'visit-record' | 'consent-form' | 'visit-data' | 'completed'
 
 const steps = [
-  { key: 'comfort-letter', title: '上人慰問信', titleEn: 'Comfort Letter' },
-  { key: 'consent-form', title: '個資授權同意書', titleEn: 'Consent Form' },
-  { key: 'application-form', title: '應急慰問金匯款資訊', titleEn: 'Relief Fund Application' },
+  { key: 'visit-record', title: '訪視紀錄', titleEn: 'Visit Record' },
+  // { key: 'consent-form', title: '個資授權同意書', titleEn: 'Consent Form' },  // POC 版本隱藏
+  { key: 'visit-data', title: '訪視資料', titleEn: 'Visit Data' },
 ]
 
 export default function NewApplicationPage() {
   const { t, i18n } = useTranslation()
-  const [currentStep, setCurrentStep] = useState<FormStep>('comfort-letter')
+  const [currentStep, setCurrentStep] = useState<FormStep>('visit-record')
   const [isAgreed, setIsAgreed] = useState(false)
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
-  const [currentSubStep, setCurrentSubStep] = useState(1) // 第三步的子步驟
+  const [currentSubStep, setCurrentSubStep] = useState(2) // POC 版本：直接從子步驟 2（現場照片）開始
   const [applicationId, setApplicationId] = useState<string | null>(null)
 
-  // 表單資料
+  // 訪視紀錄資料（新增）
+  const [visitRecord, setVisitRecord] = useState({
+    eventName: '',
+    visitNotes: '',
+    visitDate: new Date().toISOString().split('T')[0],  // 自動帶入今日日期
+    visitTime: new Date().toTimeString().slice(0, 5)     // 自動帶入當前時間
+  })
+
+  // 表單資料（POC 版本暫不使用）
   const [formData, setFormData] = useState({
     victim_name: '',
     id_number: '',
@@ -43,7 +51,10 @@ export default function NewApplicationPage() {
     bank_account: ''
   })
 
-  // 檔案資料
+  // 檔案資料（POC 版本：支援多張現場照片）
+  const [photos, setPhotos] = useState<Array<{ file: File; exifData?: any }>>([])
+
+  // 舊的檔案資料結構（POC 版本暫不使用）
   const [fileData, setFileData] = useState({
     frontIdPhoto: null as File | null,
     backIdPhoto: null as File | null,
@@ -215,8 +226,8 @@ export default function NewApplicationPage() {
     return fileData.signature
   }
 
-  // 第一步：上人慰問信
-  if (currentStep === 'comfort-letter') {
+  // 第一步：訪視紀錄
+  if (currentStep === 'visit-record') {
     return (
       <div className="min-h-screen flex flex-col">
         {/* Header - RWD 友善 */}
@@ -266,33 +277,76 @@ export default function NewApplicationPage() {
           </div>
         </div>
 
-        {/* Container */}
+        {/* Container - 訪視紀錄表單 */}
         <div className="flex-1 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950 p-4 md:p-8">
-          <div className="max-w-6xl mx-auto h-full flex flex-col gap-8 justify-center items-center">
-            <div className="flex flex-col md:flex-row gap-4 md:gap-8">
-              {/* Mobile: 001在上, Desktop: 002在左 */}
-              <Card className="shadow-2xl cursor-pointer hover:shadow-3xl transition-shadow order-1 md:order-2">
-                <CardBody className="p-0">
-                  <img
-                    src="/content/letter-page-1.jpg"
-                    alt="上人慰問信 - 第一頁 (001)"
-                    className="h-auto max-h-[50vh] md:max-h-[60vh] object-contain rounded-lg w-full"
-                    onClick={() => setSelectedImage('/content/letter-page-1.jpg')}
+          <div className="max-w-3xl mx-auto h-full flex flex-col gap-6 justify-center">
+            <Card className="shadow-2xl">
+              <CardHeader className="flex flex-col gap-2 pb-4">
+                <h2 className="text-2xl font-bold">訪視紀錄</h2>
+                <p className="text-sm text-default-500">請填寫災區訪視的基本資訊</p>
+              </CardHeader>
+              <CardBody className="space-y-6">
+                {/* 事件名稱 */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    事件名稱 <span className="text-danger">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="例如：2025花蓮地震災區訪視"
+                    value={visitRecord.eventName}
+                    onChange={(e) => setVisitRecord({ ...visitRecord, eventName: e.target.value })}
+                    className="w-full px-4 py-3 rounded-lg border border-default-200 focus:border-primary focus:outline-none dark:bg-default-100"
                   />
-                </CardBody>
-              </Card>
-              {/* Mobile: 002在下, Desktop: 001在右 */}
-              <Card className="shadow-2xl cursor-pointer hover:shadow-3xl transition-shadow order-2 md:order-1">
-                <CardBody className="p-0">
-                  <img
-                    src="/content/letter-page-2.jpg"
-                    alt="上人慰問信 - 第二頁 (002)"
-                    className="h-auto max-h-[50vh] md:max-h-[60vh] object-contain rounded-lg w-full"
-                    onClick={() => setSelectedImage('/content/letter-page-2.jpg')}
+                </div>
+
+                {/* 訪視紀錄 */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    訪視紀錄 <span className="text-danger">*</span>
+                  </label>
+                  <textarea
+                    placeholder="請描述現場狀況、災戶情況、損害程度等..."
+                    value={visitRecord.visitNotes}
+                    onChange={(e) => setVisitRecord({ ...visitRecord, visitNotes: e.target.value })}
+                    rows={6}
+                    className="w-full px-4 py-3 rounded-lg border border-default-200 focus:border-primary focus:outline-none resize-none dark:bg-default-100"
                   />
-                </CardBody>
-              </Card>
-            </div>
+                </div>
+
+                {/* 訪視日期時間 */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">訪視日期</label>
+                    <input
+                      type="date"
+                      value={visitRecord.visitDate}
+                      onChange={(e) => setVisitRecord({ ...visitRecord, visitDate: e.target.value })}
+                      className="w-full px-4 py-3 rounded-lg border border-default-200 focus:border-primary focus:outline-none dark:bg-default-100"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">訪視時間</label>
+                    <input
+                      type="time"
+                      value={visitRecord.visitTime}
+                      onChange={(e) => setVisitRecord({ ...visitRecord, visitTime: e.target.value })}
+                      className="w-full px-4 py-3 rounded-lg border border-default-200 focus:border-primary focus:outline-none dark:bg-default-100"
+                    />
+                  </div>
+                </div>
+
+                {/* 說明文字 */}
+                <div className="bg-blue-50 dark:bg-blue-950/30 p-4 rounded-lg">
+                  <p className="text-sm text-default-600">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="inline mr-2">
+                      <path d="M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z" />
+                    </svg>
+                    日期和時間已自動帶入當前時間，您可以視需要調整
+                  </p>
+                </div>
+              </CardBody>
+            </Card>
           </div>
         </div>
 
@@ -300,60 +354,28 @@ export default function NewApplicationPage() {
         <div className="bg-background border-t border-divider p-6">
           <div className="flex justify-between items-center max-w-6xl mx-auto">
             <Button
-              as="a"
-              href="/content/comfort-letter.pdf"
-              target="_blank"
               variant="ghost"
-              startContent={
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
-                </svg>
-              }
+              onClick={() => router.push('/dashboard')}
             >
-{t('application.downloadPdf')}
+              返回首頁
             </Button>
-            <Button color="primary" size="lg" onClick={handleNext} className="px-8 py-3">
-              {t('application.readAndContinue')}
+            <Button
+              color="primary"
+              size="lg"
+              onClick={handleNext}
+              className="px-8 py-3"
+              isDisabled={!visitRecord.eventName || !visitRecord.visitNotes}
+            >
+              下一步：上傳現場照片
             </Button>
           </div>
         </div>
-
-        {/* 全螢幕圖片 Modal */}
-        <Modal
-          isOpen={!!selectedImage}
-          onClose={() => setSelectedImage(null)}
-          size="full"
-          classNames={{
-            base: "bg-black/90",
-            backdrop: "bg-black/50"
-          }}
-          isDismissable
-          isKeyboardDismissDisabled={false}
-        >
-          <ModalContent>
-            <ModalHeader className="text-white cursor-pointer" onClick={() => setSelectedImage(null)}>
-              {selectedImage?.includes('page-1') ? '第一頁' : '第二頁'} （點擊任何地方關閉）
-            </ModalHeader>
-            <ModalBody
-              className="flex items-center justify-center p-4 cursor-pointer"
-              onClick={() => setSelectedImage(null)}
-            >
-              {selectedImage && (
-                <img
-                  src={selectedImage}
-                  alt="放大檢視"
-                  className="max-w-[95vw] max-h-[85vh] object-contain rounded-lg shadow-2xl"
-                />
-              )}
-            </ModalBody>
-          </ModalContent>
-        </Modal>
       </div>
     )
   }
 
-  // 第二步：個資授權同意書
-  if (currentStep === 'consent-form') {
+  // 第二步：個資授權同意書（POC 版本隱藏）
+  if (false && currentStep === 'consent-form') {
     return (
       <div className="min-h-screen flex flex-col">
         {/* Header - RWD 友善 */}
@@ -510,8 +532,8 @@ export default function NewApplicationPage() {
     )
   }
 
-  // 第三步：基本資料表單
-  if (currentStep === 'application-form') {
+  // 第三步：訪視資料（現場照片）
+  if (currentStep === 'visit-data') {
     return (
       <div className="min-h-screen flex flex-col">
         {/* Header - RWD 友善 */}
@@ -567,8 +589,8 @@ export default function NewApplicationPage() {
         {/* Container */}
         <div className="flex-1 p-4 md:p-8 overflow-y-auto">
           <div className="max-w-4xl mx-auto">
-            {/* 子步驟 1: 基本資料填寫 */}
-            {currentSubStep === 1 && (
+            {/* 子步驟 1: 基本資料填寫（POC 版本隱藏） */}
+            {false && currentSubStep === 1 && (
               <Card className="shadow-lg">
                 <CardHeader className="flex flex-col items-start space-y-2">
                   <h2 className="text-lg font-bold">{t('application.basicInfo')}</h2>
@@ -723,51 +745,86 @@ export default function NewApplicationPage() {
               </Card>
             )}
 
-            {/* 子步驟 2: 證件拍照 */}
+            {/* 子步驟 2: 現場照片上傳（支援多張，最多 20 張） */}
             {currentSubStep === 2 && (
               <Card className="shadow-lg">
                 <CardHeader className="flex flex-col items-start space-y-2">
-                  <h2 className="text-lg font-bold">{t('application.documentPhoto')}</h2>
-                  <p className="text-sm text-default-500">{t('application.documentPhotoDesc')}</p>
+                  <h2 className="text-lg font-bold">現場照片上傳</h2>
+                  <p className="text-sm text-default-500">拍攝或選擇現場照片（最多 20 張）</p>
                 </CardHeader>
-                <CardBody className="space-y-8">
-                  <div className="space-y-8">
+                <CardBody className="space-y-6">
+                  {/* 照片上傳區 */}
+                  {photos.length < 20 && (
                     <div>
-                      <h3 className="text-md font-semibold mb-4 text-primary">1. {t('application.idFront')}</h3>
                       <CameraCapture
-                        label={t('application.idFront')}
-                        onCapture={(file) => setFileData(prev => ({ ...prev, frontIdPhoto: file }))}
-                        isRequired
-                        currentImage={fileData.frontIdPhoto ? URL.createObjectURL(fileData.frontIdPhoto) : null}
+                        label={`現場照片 ${photos.length + 1}`}
+                        onCapture={(file, exifData) => {
+                          setPhotos(prev => [...prev, { file, exifData }])
+                        }}
                       />
                     </div>
+                  )}
 
-                    <div>
-                      <h3 className="text-md font-semibold mb-4 text-primary">2. {t('application.idBack')}</h3>
-                      <CameraCapture
-                        label={t('application.idBack')}
-                        onCapture={(file) => setFileData(prev => ({ ...prev, backIdPhoto: file }))}
-                        isRequired
-                        currentImage={fileData.backIdPhoto ? URL.createObjectURL(fileData.backIdPhoto) : null}
-                      />
-                    </div>
+                  {/* 已上傳照片列表 */}
+                  {photos.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <h3 className="text-md font-semibold">已上傳照片 ({photos.length}/20)</h3>
+                        {photos.length < 20 && (
+                          <p className="text-sm text-default-500">可繼續新增 {20 - photos.length} 張</p>
+                        )}
+                      </div>
 
-                    <div>
-                      <h3 className="text-md font-semibold mb-4 text-primary">3. {t('application.bankProof')}</h3>
-                      <CameraCapture
-                        label={t('application.bankProofDoc')}
-                        onCapture={(file) => setFileData(prev => ({ ...prev, bankPhoto: file }))}
-                        isRequired
-                        currentImage={fileData.bankPhoto ? URL.createObjectURL(fileData.bankPhoto) : null}
-                      />
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {photos.map((photo, index) => (
+                          <div key={index} className="relative group">
+                            <img
+                              src={URL.createObjectURL(photo.file)}
+                              alt={`照片 ${index + 1}`}
+                              className="w-full aspect-square object-cover rounded-lg"
+                            />
+                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                              <Button
+                                size="sm"
+                                color="danger"
+                                onClick={() => {
+                                  setPhotos(prev => prev.filter((_, i) => i !== index))
+                                }}
+                              >
+                                刪除
+                              </Button>
+                            </div>
+                            <div className="absolute top-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
+                              #{index + 1}
+                            </div>
+                            {photo.exifData?.gps && (
+                              <div className="absolute bottom-2 right-2 bg-green-500 text-white text-xs px-2 py-1 rounded">
+                                GPS
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {/* 提示訊息 */}
+                  {photos.length === 0 && (
+                    <div className="bg-yellow-50 dark:bg-yellow-950/30 p-4 rounded-lg">
+                      <p className="text-sm text-default-600">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="inline mr-2">
+                          <path d="M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z" />
+                        </svg>
+                        請至少上傳 1 張現場照片
+                      </p>
+                    </div>
+                  )}
                 </CardBody>
               </Card>
             )}
 
-            {/* 子步驟 3: 電子簽名 */}
-            {currentSubStep === 3 && (
+            {/* 子步驟 3: 電子簽名（POC 版本隱藏） */}
+            {false && currentSubStep === 3 && (
               <Card className="shadow-lg">
                 <CardHeader className="flex flex-col items-start space-y-2">
                   <h2 className="text-lg font-bold">{t('application.electronicSignature')}</h2>
@@ -885,34 +942,34 @@ export default function NewApplicationPage() {
             <Button
               variant="ghost"
               onClick={() => {
-                if (currentSubStep > 1) {
-                  setCurrentSubStep(currentSubStep - 1)
-                } else {
-                  handleBack()
+                // POC 版本：子步驟 2 → 回到步驟 1，子步驟 4 → 回到子步驟 2
+                if (currentSubStep === 4) {
+                  setCurrentSubStep(2)
+                } else if (currentSubStep === 2) {
+                  handleBack()  // 回到步驟 1（訪視紀錄）
                 }
               }}
               className="px-4 md:px-6 py-2 md:py-3"
             >
-{currentSubStep > 1 ? t('application.back') : t('application.backToConsent')}
+              上一步
             </Button>
 
             <Button
               color={currentSubStep === 4 ? 'success' : 'primary'}
               size="lg"
               onClick={() => {
-                if (currentSubStep < 4) {
-                  setCurrentSubStep(currentSubStep + 1)
-                } else {
-                  // 真正提交到 Supabase
+                // POC 版本：子步驟 2 → 跳到子步驟 4（跳過子步驟 3）
+                if (currentSubStep === 2) {
+                  setCurrentSubStep(4)
+                } else if (currentSubStep === 4) {
+                  // 提交訪視紀錄
                   handleFinalSubmit()
                 }
               }}
               isLoading={isSubmitting}
               isDisabled={
                 isSubmitting ||
-                (currentSubStep === 1 && !validateBasicInfo()) ||
-                (currentSubStep === 2 && !validatePhotos()) ||
-                (currentSubStep === 3 && !validateSignature())
+                (currentSubStep === 2 && photos.length === 0)  // 至少 1 張照片
               }
               className="px-6 md:px-8 py-2 md:py-3"
             >
