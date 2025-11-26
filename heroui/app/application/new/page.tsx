@@ -90,22 +90,22 @@ export default function NewApplicationPage() {
 
   const router = useRouter()
 
-  // 載入銀行代碼
-  useEffect(() => {
-    const fetchBankCodes = async () => {
-      const { data, error } = await supabase
-        .from('bank_codes')
-        .select('*')
-        .order('type', { ascending: true })
-        .order('name', { ascending: true })
+  // 載入銀行代碼（POC 版本不使用）
+  // useEffect(() => {
+  //   const fetchBankCodes = async () => {
+  //     const { data, error } = await supabase
+  //       .from('bank_codes')
+  //       .select('*')
+  //       .order('type', { ascending: true })
+  //       .order('name', { ascending: true })
 
-      if (data) {
-        setBankCodes(data)
-      }
-    }
+  //     if (data) {
+  //       setBankCodes(data)
+  //     }
+  //   }
 
-    fetchBankCodes()
-  }, [])
+  //   fetchBankCodes()
+  // }, [])
 
   const getCurrentStepIndex = () => {
     return steps.findIndex(step => step.key === currentStep)
