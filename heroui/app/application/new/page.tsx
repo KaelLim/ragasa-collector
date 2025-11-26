@@ -296,50 +296,58 @@ ${visitRecord.visitNotes}`.trim()
               <CardBody className="space-y-6">
                 {/* 事件名稱 */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">
+                  <label htmlFor="eventName" className="text-sm font-medium">
                     事件名稱 <span className="text-danger">*</span>
                   </label>
                   <input
+                    id="eventName"
                     type="text"
                     placeholder="例如：2025花蓮地震災區訪視"
                     value={visitRecord.eventName}
                     onChange={(e) => setVisitRecord({ ...visitRecord, eventName: e.target.value })}
                     className="w-full px-4 py-3 rounded-lg border border-default-200 focus:border-primary focus:outline-none dark:bg-default-100"
+                    aria-label="事件名稱"
                   />
                 </div>
 
                 {/* 訪視紀錄 */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">
+                  <label htmlFor="visitNotes" className="text-sm font-medium">
                     訪視紀錄 <span className="text-danger">*</span>
                   </label>
                   <textarea
+                    id="visitNotes"
                     placeholder="請描述現場狀況、災戶情況、損害程度等..."
                     value={visitRecord.visitNotes}
                     onChange={(e) => setVisitRecord({ ...visitRecord, visitNotes: e.target.value })}
                     rows={6}
                     className="w-full px-4 py-3 rounded-lg border border-default-200 focus:border-primary focus:outline-none resize-none dark:bg-default-100"
+                    aria-label="訪視紀錄"
                   />
                 </div>
 
                 {/* 訪視日期時間 */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">訪視日期</label>
+                    <label htmlFor="visitDate" className="text-sm font-medium">訪視日期</label>
                     <input
+                      id="visitDate"
                       type="date"
                       value={visitRecord.visitDate}
                       onChange={(e) => setVisitRecord({ ...visitRecord, visitDate: e.target.value })}
                       className="w-full px-4 py-3 rounded-lg border border-default-200 focus:border-primary focus:outline-none dark:bg-default-100"
+                      aria-label="訪視日期"
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">訪視時間</label>
+                    <label htmlFor="visitTime" className="text-sm font-medium">訪視時間</label>
                     <input
+                      id="visitTime"
                       type="time"
                       value={visitRecord.visitTime}
                       onChange={(e) => setVisitRecord({ ...visitRecord, visitTime: e.target.value })}
                       className="w-full px-4 py-3 rounded-lg border border-default-200 focus:border-primary focus:outline-none dark:bg-default-100"
+                      aria-label="訪視時間"
                     />
                   </div>
                 </div>
