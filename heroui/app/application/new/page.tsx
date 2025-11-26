@@ -37,9 +37,19 @@ export default function NewApplicationPage() {
   const [visitRecord, setVisitRecord] = useState({
     eventName: '',
     visitNotes: '',
-    visitDate: new Date().toISOString().split('T')[0],  // 自動帶入今日日期
-    visitTime: new Date().toTimeString().slice(0, 5)     // 自動帶入當前時間
+    visitDate: '',  // 將在 useEffect 中設定
+    visitTime: ''   // 將在 useEffect 中設定
   })
+
+  // 自動帶入日期時間（客戶端）
+  useEffect(() => {
+    const now = new Date()
+    setVisitRecord(prev => ({
+      ...prev,
+      visitDate: now.toISOString().split('T')[0],
+      visitTime: now.toTimeString().slice(0, 5)
+    }))
+  }, [])
 
   // 表單資料（POC 版本暫不使用）
   const [formData, setFormData] = useState({
