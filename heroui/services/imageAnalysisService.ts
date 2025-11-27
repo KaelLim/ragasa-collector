@@ -140,13 +140,10 @@ export async function uploadAndProcessImage(
       throw new Error(`資料庫寫入失敗: ${insertError.message}`)
     }
 
-    // 6. 觸發 Edge Function 進行 AI 分析（非阻塞）
-    supabase.functions.invoke('process-image', {
-      body: { image_id: analysis.id }
-    }).catch((error) => {
-      console.error('Edge Function 調用失敗:', error)
-      // 即使失敗也不影響主流程，狀態保持 pending，後端 Queue Worker 會處理
-    })
+    // 6. AI 分析處理（由 Database Trigger 自動觸發）
+    // 前端無需手動調用 Edge Function
+    // 寫入 status='pending' 後，Database Trigger 會自動加入 processing_queue
+    // Queue Worker 會自動拉取並處理
 
     return {
       analysisId: analysis.id,

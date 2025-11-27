@@ -77,19 +77,6 @@
         ],
         "status": "done",
         "subtasks": []
-      },
-      {
-        "id": 7,
-        "title": "加入 Realtime 狀態顯示 UI",
-        "description": "在申請表單子步驟 2 加入 Realtime 狀態顯示 UI",
-        "details": "新增上傳進度條、處理狀態標籤（上傳中、等待處理、AI 分析中、分析完成、分析失敗）、分析結果預覽（caption, tags）等 UI 元素。",
-        "testStrategy": "測試狀態顯示功能，確認狀態即時更新，用戶可清楚了解處理進度。",
-        "priority": "medium",
-        "dependencies": [
-          6
-        ],
-        "status": "pending",
-        "subtasks": []
       }
     ],
     "metadata": {
