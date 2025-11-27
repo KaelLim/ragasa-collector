@@ -769,43 +769,55 @@ psql -h sberelieffundpj.tzuchi-org.tw -U postgres -f sql/setup_simple.sql
 
 ---
 
-## 📝 書記記憶 UID（OpenMemory）
+## 📝 程編記憶檔案（Serena）
 
-**專案 UID**: `relieffundpj-local-v0.0.5`
+**專案記憶位置**：`.serena/memories/`
 
-### 最新進度記錄（2025-11-25）
+### 最新進度記錄（2025-11-26）
 
-| 記憶 UID | 說明 |
+| 記憶檔案 | 說明 |
 |:---|:---|
-| `b27fc563-a720-4579-9a29-9af163441c74` | 每日進度 - 2025-11-25 |
-| `c86d3413-be02-4277-8f52-1de057c129f5` | 專案完整進度 |
+| `每日進度_2025-11-26_POC完成.md` | 今日完整工作記錄 |
 
 ---
 
-## 📅 明日工作項目（前端團隊）
+## 📅 明日工作項目（2025-11-27）
 
-1. **實作角色權限 UI 控制**
-   - Admin：完整功能 + 使用者管理
-   - Editor：完整功能
-   - User：僅圖片上傳，設定功能灰色
+### 待後端完成
+1. **AI 處理 Docker 網路問題修復**
+   - Edge Function 圖片 URL 解析
+   - 重新處理 4 筆失敗記錄
+   - 確認 AI 分析結果
 
-2. **整合 Supabase 服務到現有元件**
-   - 替換舊有的 vectorDbService.js
-   - 整合到 app/application/new/page.tsx
+### 前端可選工作
+1. **Realtime 訂閱測試**
+   - 觀察 AI 結果即時推送
+   - 驗證 status 變化
+   - 測試 Dashboard 更新
 
-3. **移除舊有 score 評分功能**
-   - 清理相關 UI 和邏輯
-   - 更新翻譯檔案
+2. **Dashboard 功能完善**
+   - 顯示 AI 分析結果（caption, tags）
+   - 照片列表優化
+   - 空狀態處理
 
-4. **完整流程測試**
-   - 圖片上傳 → EXIF 解析 → Storage 上傳
-   - 資料庫記錄 → Edge Function 處理
-   - Realtime 推送 → UI 即時更新
+3. **語意搜尋功能測試**
+   - 調用 semantic-search Edge Function
+   - 測試向量搜尋功能
 
-5. **與後端團隊協作驗證**
-   - 測試 Edge Functions 連通性
-   - 驗證角色權限隔離
-   - 確認向量搜尋功能
+4. **RLS 政策測試**
+   - 建立 3 個角色測試帳號
+   - 執行 8 個測試場景
+   - 驗證權限隔離
+
+### 優化項目（可選）
+1. **UI/UX 優化**
+   - 修復剩餘 aria-label 警告
+   - 優化上傳進度 UI
+
+2. **功能增強**
+   - 檔案大小驗證（50MB）
+   - 圖片格式驗證
+   - 錯誤訊息優化
 
 ---
 
