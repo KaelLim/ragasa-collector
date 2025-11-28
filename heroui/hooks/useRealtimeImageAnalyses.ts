@@ -61,19 +61,21 @@ export function useRealtimeImageAnalyses(userId: string | null) {
           filter: `user_id=eq.${userId}`
         },
         (payload) => {
-          console.log('Realtime 事件:', payload.eventType, payload.new?.id)
+          const newRecord = payload.new as ImageAnalysis | null
+          const oldRecord = payload.old as ImageAnalysis | null
+          console.log('Realtime 事件:', payload.eventType, newRecord?.id)
 
-          if (payload.eventType === 'INSERT') {
-            setAnalyses((prev) => [payload.new as ImageAnalysis, ...prev])
-          } else if (payload.eventType === 'UPDATE') {
+          if (payload.eventType === 'INSERT' && newRecord) {
+            setAnalyses((prev) => [newRecord, ...prev])
+          } else if (payload.eventType === 'UPDATE' && newRecord) {
             setAnalyses((prev) =>
               prev.map((item) =>
-                item.id === payload.new.id ? (payload.new as ImageAnalysis) : item
+                item.id === newRecord.id ? newRecord : item
               )
             )
-          } else if (payload.eventType === 'DELETE') {
+          } else if (payload.eventType === 'DELETE' && oldRecord) {
             setAnalyses((prev) =>
-              prev.filter((item) => item.id !== payload.old.id)
+              prev.filter((item) => item.id !== oldRecord.id)
             )
           }
         }

@@ -198,6 +198,84 @@ export interface Database {
           created_at?: string
         }
       }
+      // 舊版災害申請表（保留相容性）
+      disaster_applications: {
+        Row: {
+          id: string
+          user_id: string
+          victim_name: string
+          id_number: string
+          phone_number: string
+          address: string
+          bank_code: string
+          bank_account: string
+          front_id_photo: string | null
+          back_id_photo: string | null
+          bank_photo: string | null
+          signature: string | null
+          status: 'submitted' | 'reviewed' | 'approved' | 'rejected'
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          victim_name: string
+          id_number: string
+          phone_number: string
+          address: string
+          bank_code: string
+          bank_account: string
+          front_id_photo?: string | null
+          back_id_photo?: string | null
+          bank_photo?: string | null
+          signature?: string | null
+          status?: 'submitted' | 'reviewed' | 'approved' | 'rejected'
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          victim_name?: string
+          id_number?: string
+          phone_number?: string
+          address?: string
+          bank_code?: string
+          bank_account?: string
+          front_id_photo?: string | null
+          back_id_photo?: string | null
+          bank_photo?: string | null
+          signature?: string | null
+          status?: 'submitted' | 'reviewed' | 'approved' | 'rejected'
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      // 銀行代碼表
+      bank_codes: {
+        Row: {
+          id: number
+          code: string
+          name: string
+          type: string
+          created_at: string
+        }
+        Insert: {
+          id?: number
+          code: string
+          name: string
+          type: string
+          created_at?: string
+        }
+        Update: {
+          id?: number
+          code?: string
+          name?: string
+          type?: string
+          created_at?: string
+        }
+      }
     }
     Views: {
       // 處理統計報表
@@ -261,6 +339,16 @@ export type PromptVersion = Database['public']['Tables']['prompt_versions']['Row
 export type PromptVersionInsert = Database['public']['Tables']['prompt_versions']['Insert']
 export type PromptVersionUpdate = Database['public']['Tables']['prompt_versions']['Update']
 
+// 便捷型別別名 - disaster_applications
+export type DisasterApplicationRow = Database['public']['Tables']['disaster_applications']['Row']
+export type DisasterApplicationInsert = Database['public']['Tables']['disaster_applications']['Insert']
+export type DisasterApplicationUpdate = Database['public']['Tables']['disaster_applications']['Update']
+
+// 便捷型別別名 - bank_codes
+export type BankCode = Database['public']['Tables']['bank_codes']['Row']
+export type BankCodeInsert = Database['public']['Tables']['bank_codes']['Insert']
+export type BankCodeUpdate = Database['public']['Tables']['bank_codes']['Update']
+
 // 便捷型別別名 - Views & Functions
 export type ProcessingStatistics = Database['public']['Views']['processing_statistics']['Row']
 export type SearchResult = Database['public']['Functions']['match_image_analyses']['Returns'][0]
@@ -282,6 +370,25 @@ export interface ImageTags {
 export interface GpsCoordinate {
   lat: number   // 緯度
   lon: number   // 經度
+}
+
+// 舊版災害申請型別（保留相容性）
+export interface DisasterApplication {
+  id: string
+  user_id: string
+  victim_name: string
+  id_number: string
+  phone_number: string
+  address: string
+  bank_code: string
+  bank_account: string
+  front_id_photo?: string | null
+  back_id_photo?: string | null
+  bank_photo?: string | null
+  signature?: string | null
+  status: 'submitted' | 'reviewed' | 'approved' | 'rejected'
+  created_at: string
+  updated_at: string
 }
 
 // 使用者角色（來自 auth.users.user_metadata.role）

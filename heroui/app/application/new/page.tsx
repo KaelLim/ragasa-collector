@@ -897,7 +897,7 @@ ${visitRecord.visitNotes}`.trim()
                     label={t('application.handwrittenSignature')}
                     onSave={(file) => setFileData(prev => ({ ...prev, signature: file }))}
                     isRequired
-                    currentSignature={fileData.signature ? URL.createObjectURL(fileData.signature) : null}
+                    currentSignature={fileData.signature ? URL.createObjectURL(fileData.signature as Blob) : undefined}
                   />
                 </CardBody>
               </Card>

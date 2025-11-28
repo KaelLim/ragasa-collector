@@ -48,7 +48,7 @@ function ApplicationDetailClient() {
         .from('disaster_applications')
         .select('*')
         .eq('id', applicationId)
-        .single()
+        .single<DisasterApplication>()
 
       if (fetchError) {
         throw fetchError
@@ -66,7 +66,7 @@ function ApplicationDetailClient() {
           .select('name')
           .eq('code', data.bank_code)
           .limit(1)
-          .single()
+          .single<{ name: string }>()
 
         if (bankData && !bankError) {
           setBankName(bankData.name)

@@ -10,6 +10,7 @@ import { Select, SelectItem } from '@heroui/select'
 import { useTranslation } from 'react-i18next'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import type { ImageAnalysis, GpsCoordinate } from '@/types/database.types'
 import LanguageSwitcher from '@/components/language-switcher'
 import ThemeSwitcher from '@/components/theme-switcher'
 import Logo from '@/components/logo'
@@ -67,6 +68,7 @@ export default function DashboardPage() {
         .from('image_analyses')
         .select('*')
         .order('created_at', { ascending: false })
+        .returns<ImageAnalysis[]>()
 
       if (error) throw error
 
@@ -76,7 +78,7 @@ export default function DashboardPage() {
         'Image Name': analysis.image_name,
         'Event Description': analysis.event_description || '',
         'EXIF DateTime': analysis.exif_datetime || '',
-        'EXIF GPS': analysis.exif_gps ? `${analysis.exif_gps.lat}, ${analysis.exif_gps.lon}` : '',
+        'EXIF GPS': analysis.exif_gps ? `${(analysis.exif_gps as unknown as GpsCoordinate).lat}, ${(analysis.exif_gps as unknown as GpsCoordinate).lon}` : '',
         'EXIF Camera': analysis.exif_camera || '',
         'Caption': analysis.caption || '',
         'Tags': analysis.tags ? JSON.stringify(analysis.tags) : '',

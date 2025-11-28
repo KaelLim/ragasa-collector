@@ -51,6 +51,7 @@ export default function ApplicationsPage() {
         .from('disaster_applications')
         .select('*')
         .order('created_at', { ascending: false })
+        .returns<DisasterApplication[]>()
 
       if (allError) {
         console.log('RLS 限制：無法查看團隊記錄', allError)
@@ -66,6 +67,7 @@ export default function ApplicationsPage() {
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
+        .returns<DisasterApplication[]>()
 
       if (myError) {
         throw myError

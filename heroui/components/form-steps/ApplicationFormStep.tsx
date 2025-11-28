@@ -7,7 +7,7 @@ import { Button } from '@heroui/button'
 import { Progress } from '@heroui/progress'
 import { Modal, ModalContent, ModalHeader, ModalBody } from '@heroui/modal'
 import { useTranslation } from 'react-i18next'
-import { supabase, type BankCode } from '@/lib/supabase'
+import { supabase, type BankCode, type DisasterApplication } from '@/lib/supabase'
 import CameraCapture from '@/components/CameraCapture'
 import SignatureCanvas from '@/components/SignatureCanvas'
 import BankSelector from '@/components/BankSelector'
@@ -74,6 +74,7 @@ export default function ApplicationFormStep({
       .select('*')
       .order('type', { ascending: true })
       .order('name', { ascending: true })
+      .returns<BankCode[]>()
 
     if (data) {
       setBankCodes(data)
@@ -106,14 +107,22 @@ export default function ApplicationFormStep({
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
+      // 準備插入資料，排除不需要的欄位
+      const insertData = {
+        user_id: user.id,
+        victim_name: formData.victim_name,
+        id_number: formData.id_number,
+        phone_number: formData.phone_number,
+        address: formData.address,
+        bank_code: formData.bank_code,
+        bank_account: formData.bank_account
+      }
+
       const { data, error } = await supabase
         .from('disaster_applications')
-        .insert([{
-          user_id: user.id,
-          ...formData
-        }])
+        .insert([insertData] as any)
         .select()
-        .single()
+        .single<DisasterApplication>()
 
       if (error) throw error
 

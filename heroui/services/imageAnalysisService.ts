@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { parseExif } from '@/lib/exifParser'
-import type { ImageAnalysisInsert } from '@/types/database.types'
+import type { ImageAnalysis, ImageAnalysisInsert } from '@/types/database.types'
 
 /**
  * 圖片上傳與處理結果
@@ -132,9 +132,9 @@ export async function uploadAndProcessImage(
 
     const { data: analysis, error: insertError } = await supabase
       .from('image_analyses')
-      .insert(insertData)
+      .insert(insertData as any)
       .select()
-      .single()
+      .single<ImageAnalysis>()
 
     if (insertError) {
       throw new Error(`資料庫寫入失敗: ${insertError.message}`)
@@ -171,6 +171,7 @@ export async function getImageAnalyses(page = 1, pageSize = 20) {
     .select('*', { count: 'exact' })
     .order('created_at', { ascending: false })
     .range(from, to)
+    .returns<ImageAnalysis[]>()
 
   if (error) throw error
   return { data: data || [], count: count || 0, page, pageSize }
@@ -187,6 +188,7 @@ export async function getByStatus(status: 'pending' | 'processing' | 'completed'
     .select('*')
     .eq('status', status)
     .order('created_at', { ascending: false })
+    .returns<ImageAnalysis[]>()
 
   if (error) throw error
   return data || []
@@ -197,12 +199,12 @@ export async function getByStatus(status: 'pending' | 'processing' | 'completed'
  * @param id - 記錄 ID
  * @returns 分析記錄
  */
-export async function getById(id: string) {
+export async function getById(id: string): Promise<ImageAnalysis> {
   const { data, error } = await supabase
     .from('image_analyses')
     .select('*')
     .eq('id', id)
-    .single()
+    .single<ImageAnalysis>()
 
   if (error) throw error
   return data
@@ -296,13 +298,13 @@ export async function waitForProcessingComplete(
           .from('image_analyses')
           .select('*')
           .eq('id', imageId)
-          .single()
+          .single<ImageAnalysis>()
 
         if (error) throw error
 
         if (data.status === 'completed') {
           // 已完成但 Realtime 未收到
-          resolve(data as ImageAnalysis)
+          resolve(data)
         } else {
           // 仍在處理中
           reject(new Error('AI 處理超時（60 秒），已在背景處理，請稍後查看分析記錄'))
@@ -341,7 +343,7 @@ export async function batchUploadImages(
 
       results.push({
         fileName: file.name,
-        status: 'success',
+        status: 'success' as const,
         result
       })
 
@@ -352,7 +354,7 @@ export async function batchUploadImages(
 
       results.push({
         fileName: file.name,
-        status: 'failed',
+        status: 'failed' as const,
         error: error instanceof Error ? error.message : String(error)
       })
 
